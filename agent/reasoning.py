@@ -1,23 +1,16 @@
 import os
 import json
-from openai import OpenAI
+import requests
 from dotenv import load_dotenv
 
 load_dotenv()
 
-client = OpenAI(
-    base_url=os.getenv("AZURE_ENDPOINT") + "/openai/deployments/" + os.getenv("DEPLOYMENT_NAME"),
-    api_key=os.getenv("AZURE_API_KEY")
-)
+ENDPOINT = os.getenv("AZURE_ENDPOINT").rstrip("/")
+API_KEY = os.getenv("AZURE_API_KEY")
+MODEL = os.getenv("DEPLOYMENT_NAME")
 
 SYSTEM_PROMPT = """You are InfraGuard, an autonomous cloud infrastructure security reasoning agent.
-When given a cloud infrastructure alert, you must:
-1. Analyze the root cause
-2. Assess blast radius and business impact  
-3. Generate Terraform remediation code
-4. Assign confidence score 0-100
-
-Respond ONLY in this JSON format:
+Analyze the alert and respond ONLY in valid JSON with these exact keys:
 {
   "alert_id": "string",
   "root_cause": "string",
@@ -29,17 +22,23 @@ Respond ONLY in this JSON format:
 }"""
 
 def reason_over_alert(alert: dict) -> dict:
-    prompt = f"Alert ID: {alert['id']}\nResource: {alert['resource']}\nIssue: {alert['issue']}\nSeverity: {alert['severity']}"
-    response = client.chat.completions.create(
-        model=os.getenv("DEPLOYMENT_NAME"),
-        messages=[
+    url = f"{ENDPOINT}/models/chat/completions?api-version=2024-05-01-preview"
+    headers = {
+        "Content-Type": "application/json",
+        "api-key": API_KEY
+    }
+    payload = {
+        "model": MODEL,
+        "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt}
+            {"role": "user", "content": f"Alert ID: {alert['id']}\nResource: {alert['resource']}\nIssue: {alert['issue']}\nSeverity: {alert['severity']}"}
         ],
-        max_tokens=2000,
-        temperature=0.1
-    )
-    content = response.choices[0].message.content
+        "max_tokens": 2000,
+        "temperature": 0.1
+    }
+    response = requests.post(url, headers=headers, json=payload)
+    response.raise_for_status()
+    content = response.json()["choices"][0]["message"]["content"]
     try:
         start = content.find("{")
         end = content.rfind("}") + 1
