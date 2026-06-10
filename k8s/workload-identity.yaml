@@ -1,0 +1,37 @@
+# Azure Workload Identity — No Static Credentials
+# This replaces ALL static API keys with OIDC token exchange
+#
+# How it works:
+# 1. AKS pod gets a Kubernetes ServiceAccount token
+# 2. Azure AD validates the token via OIDC federation
+# 3. Pod receives a short-lived Azure AD token automatically
+# 4. Token is used to call Azure AI Foundry — no keys stored anywhere
+#
+# Setup commands (run once):
+#
+# az aks update --enable-oidc-issuer --enable-workload-identity -n <cluster> -g <rg>
+#
+# az identity create --name infraguard-identity --resource-group <rg>
+#
+# az role assignment create \
+#   --assignee <identity-client-id> \
+#   --role "Cognitive Services User" \
+#   --scope /subscriptions/<sub>/resourceGroups/<rg>
+#
+# az identity federated-credential create \
+#   --name infraguard-federated \
+#   --identity-name infraguard-identity \
+#   --resource-group <rg> \
+#   --issuer <aks-oidc-issuer> \
+#   --subject system:serviceaccount:infraguard:infraguard-agent
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: infraguard-config
+  namespace: infraguard
+data:
+  DEPLOYMENT_NAME: "Phi-4-reasoning"
+  GITHUB_REPO: "EdwinJdevops/infraguard-agent"
+  AUTH_METHOD: "workload-identity-oidc"
+  LEAST_PRIVILEGE: "true"
