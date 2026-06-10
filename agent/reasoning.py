@@ -123,3 +123,30 @@ if __name__ == "__main__":
         result = reason_over_alert(alert)
         print(json.dumps(result, indent=2))
         print("---")
+
+def safe_reason_over_alert(alert: dict) -> dict:
+    """
+    Wraps reason_over_alert with confidence gating.
+    Refuses to return analysis below 70% confidence.
+    Prevents hallucinated Terraform from reaching GitHub.
+    """
+    result = reason_over_alert(alert)
+    
+    confidence = result.get("confidence_score", 0)
+    terraform = result.get("terraform_fix", "")
+    
+    # Reject hallucinated output
+    if confidence < 70:
+        result["status"] = "low_confidence_rejected"
+        result["terraform_fix"] = "# REJECTED: Confidence below threshold. Manual review required."
+        result["confidence_score"] = confidence
+        return result
+    
+    # Reject empty or placeholder Terraform
+    if "Manual review" in terraform or len(terraform) < 50:
+        result["status"] = "invalid_terraform_rejected"  
+        result["terraform_fix"] = "# REJECTED: Invalid Terraform generated. Manual review required."
+        return result
+    
+    result["status"] = "approved"
+    return result
