@@ -5,3 +5,5 @@ azure-identity==1.25.3
 python-dotenv==1.2.2
 requests==2.32.3
 pydantic==2.13.4
+slowapi==0.1.9
+pymsteams==0.2.2
