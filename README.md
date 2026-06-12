@@ -7,6 +7,13 @@
 [![IQ Layer](https://img.shields.io/badge/IQ%20Layer-Foundry%20IQ-purple)](https://ai.azure.com)
 [![Model](https://img.shields.io/badge/Model-Phi--4--reasoning-orange)](https://ai.azure.com)
 
+
+## 🎥 Demo Video
+
+[![InfraGuard Demo](https://img.shields.io/badge/Watch-Demo%20Video-red)](https://youtu.be/aGAIfhqW_-E)
+
+Watch the full autonomous remediation loop: alert detection → Phi-4 reasoning → Terraform generation → GitOps PR creation.
+
 **Microsoft AI Skill Fest — Agents League Hackathon 2026**
 **Track:** Reasoning Agents | **IQ Layer:** Foundry IQ | **Model:** Phi-4-reasoning
 
