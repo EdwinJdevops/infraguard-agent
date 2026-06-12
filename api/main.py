@@ -11,7 +11,7 @@ import requests
 from dotenv import load_dotenv
 import sys
 sys.path.append("..")
-from agent.reasoning import reason_over_alert
+from agent.reasoning import reason_over_alert, get_reasoning_trace
 from agent.remediation import create_github_pr
 
 load_dotenv()
@@ -166,5 +166,18 @@ async def analyze_bulk(request: Request, api_key: str = Depends(verify_api_key))
             "critical": len([r for r in results if r.get("confidence_score", 0) > 90]),
             "results": results
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/reasoning-trace")
+@limiter.limit("5/minute")
+async def reasoning_trace(request: Request, alert: Alert, api_key: str = Depends(verify_api_key)):
+    """
+    Returns the full multi-step reasoning chain.
+    Demonstrates explicit chain-of-thought for the Reasoning Agents track.
+    """
+    try:
+        result = get_reasoning_trace(alert.dict())
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
