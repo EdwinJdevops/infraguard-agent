@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>InfraGuard Agent — Live Dashboard</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Courier New', monospace; }
+  body { background: #0a0e14; color: #00ff9f; min-height: 100vh; padding: 2rem; }
+  .container { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 2rem; margin-bottom: 0.5rem; text-shadow: 0 0 10px #00ff9f; }
+  .subtitle { color: #88a; margin-bottom: 2rem; font-size: 0.9rem; }
+  .badge { display: inline-block; background: #112; border: 1px solid #00ff9f; padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; margin-right: 8px; margin-bottom: 4px; }
+  .panel { background: #111722; border: 1px solid #233; border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem; }
+  .panel h2 { color: #00ff9f; margin-bottom: 1rem; font-size: 1.1rem; }
+  button { background: #00ff9f; color: #0a0e14; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: bold; font-family: inherit; margin-right: 10px; margin-bottom: 10px; }
+  button:hover { background: #00cc7f; }
+  button:disabled { background: #555; cursor: wait; }
+  pre { background: #060810; border: 1px solid #233; border-radius: 4px; padding: 1rem; overflow-x: auto; white-space: pre-wrap; word-break: break-word; font-size: 0.8rem; max-height: 400px; overflow-y: auto; }
+  .step { border-left: 3px solid #00ff9f; padding-left: 1rem; margin-bottom: 0.8rem; }
+  .step-num { color: #00ff9f; font-weight: bold; }
+  .severity-critical { color: #ff4444; }
+  .severity-high { color: #ffaa00; }
+  select, input { background: #060810; color: #00ff9f; border: 1px solid #233; padding: 8px; border-radius: 4px; font-family: inherit; margin-right: 10px; margin-bottom: 10px; }
+  .footer { text-align: center; color: #556; font-size: 0.75rem; margin-top: 2rem; }
+  .loading { color: #ffaa00; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🛡️ InfraGuard Agent</h1>
+  <div class="subtitle">Autonomous Cloud Security Reasoning Agent — Live Demo</div>
+  <div style="margin-bottom: 1.5rem;">
+    <span class="badge">Phi-4-reasoning</span>
+    <span class="badge">Azure AI Foundry</span>
+    <span class="badge">Foundry IQ</span>
+    <span class="badge">Reasoning Agents Track</span>
+  </div>
+
+  <div class="panel">
+    <h2>1. Select Alert Scenario</h2>
+    <select id="alertSelect">
+      <option value="0">aws_security_group — Unrestricted SSH (port 22)</option>
+      <option value="1">aws_s3_bucket — Public read access enabled</option>
+      <option value="2">aws_iam_role — Wildcard permissions in policy</option>
+    </select>
+    <br>
+    <button onclick="runTrace()">🧠 Run Reasoning Trace</button>
+    <button onclick="runRemediate()">🔧 Run Full Remediation (creates GitHub PR)</button>
+    <button onclick="runCorrelate()">🔗 Correlate All Threats</button>
+  </div>
+
+  <div class="panel" id="output-panel" style="display:none;">
+    <h2 id="output-title">Output</h2>
+    <div id="output"></div>
+  </div>
+
+  <div class="footer">
+    InfraGuard v1.0.0 | Microsoft AI Skill Fest 2026 — Agents League Hackathon<br>
+    <a href="/docs" style="color:#00ff9f;">API Docs</a> | 
+    <a href="https://github.com/EdwinJdevops/infraguard-agent" style="color:#00ff9f;">GitHub</a>
+  </div>
+</div>
+
+<script>
+const ALERTS = [
+  {id:"alert-001", severity:"high", resource:"aws_security_group", issue:"Security group allows unrestricted inbound access on port 22", region:"us-east-1", account:"production"},
+  {id:"alert-002", severity:"critical", resource:"aws_s3_bucket", issue:"S3 bucket has public read access enabled", region:"us-east-1", account:"production"},
+  {id:"alert-003", severity:"medium", resource:"aws_iam_role", issue:"IAM role has wildcard permissions in policy", region:"global", account:"production"}
+];
+const API_KEY = "infraguard-demo-key-2026";
+
+function showLoading(title) {
+  document.getElementById("output-panel").style.display = "block";
+  document.getElementById("output-title").innerText = title;
+  document.getElementById("output").innerHTML = '<div class="loading">⏳ Phi-4-reasoning is analyzing... (10-20s)</div>';
+}
+
+async function runTrace() {
+  const alert = ALERTS[document.getElementById("alertSelect").value];
+  showLoading("🧠 Multi-Step Reasoning Trace");
+  try {
+    const res = await fetch("/reasoning-trace", {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "X-API-Key": API_KEY},
+      body: JSON.stringify(alert)
+    });
+    const data = await res.json();
+    let html = "";
+    data.reasoning_chain.forEach(step => {
+      html += `<div class="step"><span class="step-num">Step ${step.step}: ${step.name}</span><br>${step.action}<br><i>→ ${step.output}</i></div>`;
+    });
+    html += `<h3 style="margin-top:1rem; color:#00ff9f;">Final Analysis</h3><pre>${JSON.stringify(data.final_analysis, null, 2)}</pre>`;
+    document.getElementById("output").innerHTML = html;
+  } catch(e) {
+    document.getElementById("output").innerHTML = `<pre>Error: ${e}</pre>`;
+  }
+}
+
+async function runRemediate() {
+  const alert = ALERTS[document.getElementById("alertSelect").value];
+  showLoading("🔧 Autonomous Remediation");
+  try {
+    const res = await fetch("/remediate", {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "X-API-Key": API_KEY},
+      body: JSON.stringify(alert)
+    });
+    const data = await res.json();
+    document.getElementById("output").innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>` + 
+      (data.pr_url && data.pr_url.startsWith("http") ? `<br><a href="${data.pr_url}" target="_blank" style="color:#00ff9f;">→ View Generated PR on GitHub</a>` : "");
+  } catch(e) {
+    document.getElementById("output").innerHTML = `<pre>Error: ${e}</pre>`;
+  }
+}
+
+async function runCorrelate() {
+  showLoading("🔗 Fleet-Level Threat Correlation");
+  try {
+    const res = await fetch("/correlate", {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "X-API-Key": API_KEY}
+    });
+    const data = await res.json();
+    document.getElementById("output").innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+  } catch(e) {
+    document.getElementById("output").innerHTML = `<pre>Error: ${e}</pre>`;
+  }
+}
+</script>
+</body>
+</html>
