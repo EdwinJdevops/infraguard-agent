@@ -1,6 +1,8 @@
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from fastapi.security import APIKeyHeader
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -30,6 +32,13 @@ app = FastAPI(
 )
 
 app.state.limiter = limiter
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.get("/dashboard")
+def dashboard():
+    return FileResponse("static/index.html")
+
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
