@@ -38,6 +38,18 @@ The agent detects, thinks, generates, and acts. No dashboards. No tickets. No wa
 
 ---
 
+
+## 🎮 Live Interactive Dashboard
+
+**[→ Launch Dashboard](https://infraguard-agent.onrender.com/dashboard)**
+
+No curl commands needed. Select an alert scenario and watch InfraGuard:
+- Run its 7-step reasoning trace in real time
+- Generate Terraform fixes and create live GitHub PRs
+- Correlate multiple alerts into compound attack chains
+
+This is the agent working live — not a recording.
+
 ## Live Demo
 
 🌐 **API:** https://infraguard-agent.onrender.com  
