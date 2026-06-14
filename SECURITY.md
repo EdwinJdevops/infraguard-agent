@@ -54,3 +54,26 @@ InfraGuard only needs:
 - Azure: Cognitive Services User (read model, call inference)
 - GitHub: contents:write on one repo, pull-requests:write on one repo
 - Kubernetes: get/list configmaps and secrets in own namespace only
+
+## Fault Tolerance & Reliability
+
+### Agent Failure Modes
+
+| Failure | Behavior |
+|---------|----------|
+| Azure AI Foundry timeout | Falls back to grounded knowledge base — never fails silently |
+| GitHub API failure | Returns error with alert analysis preserved — no data loss |
+| Confidence below 70% | Hard rejection — no PR created, no infrastructure touched |
+| Invalid Terraform generated | Confidence gate blocks it before GitHub API is called |
+| Render cold start | /health endpoint returns 503 until ready — client retries |
+
+### What Never Happens
+
+- Agent never applies changes directly to infrastructure
+- Agent never commits without a confidence score above threshold
+- Agent never exposes credentials — OIDC only, no static keys
+- Agent never runs as root — UID 1000, read-only filesystem
+
+### Horizontal Scaling
+
+The FastAPI app is stateless. Multiple replicas behind a load balancer work immediately. Rate limiting uses in-memory SlowAPI — for true distributed rate limiting, Redis backend is the documented next step in k8s/deployment.yaml.
