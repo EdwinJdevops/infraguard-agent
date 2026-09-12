@@ -75,3 +75,17 @@ class TerraformPatch:
     resource_address: str
     summary: str
     diff: str
+
+
+@dataclass(frozen=True)
+class PatchValidation:
+    passed: bool
+    checks: dict[str, bool]
+    errors: list[str] = field(default_factory=list)
+
+    def to_evidence(self) -> dict[str, object]:
+        return {
+            "passed": self.passed,
+            "checks": self.checks,
+            "errors": self.errors,
+        }
