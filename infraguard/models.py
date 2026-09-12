@@ -66,3 +66,12 @@ class RemediationDecision:
     def can_open_pr(self) -> bool:
         return self.decision == Decision.AUTO_PR
 
+
+@dataclass(frozen=True)
+class TerraformPatch:
+    file_path: str
+    before: str
+    after: str
+    resource_address: str
+    summary: str
+    diff: str

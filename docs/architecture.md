@@ -21,6 +21,7 @@ The implemented baseline now covers steps 2-4 for public SSH findings:
 - recognizes newer `aws_vpc_security_group_ingress_rule`;
 - recognizes inline `aws_security_group` ingress only when Terraform state maps the resource address to the affected `sg-*` ID;
 - returns `manual_review` when ownership is not proven.
+- generates standalone-resource patches for proven `aws_security_group_rule` and `aws_vpc_security_group_ingress_rule` matches.
 
 ## Ownership Classes
 
