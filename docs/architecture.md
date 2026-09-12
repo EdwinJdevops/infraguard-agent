@@ -23,6 +23,7 @@ The implemented baseline now covers steps 2-4 for public SSH findings:
 - returns `manual_review` when ownership is not proven.
 - generates standalone-resource patches for proven `aws_security_group_rule` and `aws_vpc_security_group_ingress_rule` matches.
 - validates generated patches by parsing patched HCL and proving public SSH is absent from the patched output.
+- exposes an end-to-end runbook function that returns decision, patch, validation, JSON evidence, and PR Markdown.
 
 ## Ownership Classes
 

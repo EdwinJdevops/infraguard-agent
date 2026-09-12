@@ -89,3 +89,12 @@ class PatchValidation:
             "checks": self.checks,
             "errors": self.errors,
         }
+
+
+@dataclass(frozen=True)
+class RemediationRun:
+    decision: RemediationDecision
+    patch: TerraformPatch | None
+    validation: PatchValidation | None
+    evidence_json: dict[str, object] | None
+    pr_markdown: str | None
