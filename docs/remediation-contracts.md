@@ -20,7 +20,7 @@ InfraGuard may open an automatic PR for public SSH only when all conditions are 
 2. Resource type is `aws_security_group`.
 3. Rule is ingress TCP/22.
 4. Source is `0.0.0.0/0` or `::/0`.
-5. Terraform ownership is proven.
+5. Terraform ownership is proven. Inline security group ownership requires Terraform state mapping from resource address to the affected `sg-*` ID.
 6. Replacement source is supplied and is not public.
 
 If any condition fails, InfraGuard must not open an automatic remediation PR.
@@ -36,4 +36,3 @@ If any condition fails, InfraGuard must not open an automatic remediation PR.
 - Replacement source.
 - Validation output.
 - Human reviewer checklist.
-

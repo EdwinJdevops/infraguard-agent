@@ -19,7 +19,7 @@ It does not apply infrastructure changes directly. It produces reviewed pull req
 | Ownership | Meaning | Automation Behavior |
 |---|---|---|
 | `terraform_standalone_rule` | The offending rule is managed as a standalone Terraform security group rule resource. | PR can be generated after policy validation. |
-| `terraform_inline_rule` | The offending rule is inside an `aws_security_group` inline ingress block. | PR can be generated after source edit support is implemented. |
+| `terraform_inline_rule` | The offending rule is inside an `aws_security_group` inline ingress block and Terraform state proves that resource maps to the affected `sg-*` ID. | PR can be generated after source edit support is implemented. |
 | `unmanaged_remote_rule` | The rule exists in AWS but is not proven in Terraform. | Manual review only. |
 | `unknown` | InfraGuard cannot prove ownership. | Manual review only. |
 
@@ -46,4 +46,3 @@ Automatic PR creation requires:
 - Multi-cloud remediation.
 - Broad S3/IAM/RDS remediation.
 - LLM-generated HCL without deterministic validation.
-
