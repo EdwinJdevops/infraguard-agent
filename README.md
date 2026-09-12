@@ -1,6 +1,6 @@
-# 🛡️ InfraGuard Agent
+# InfraGuard Agent
 
-> **Autonomous cloud infrastructure security agent that detects threats, reasons with AI, generates Terraform fixes, and opens GitOps-compliant Pull Requests — zero human intervention required.**
+> GitOps-first cloud security remediation system that turns validated findings into reviewed Terraform pull requests with evidence.
 
 [![Live API](https://img.shields.io/badge/API-Live-green)](https://infraguard-agent.onrender.com)
 [![Track](https://img.shields.io/badge/Track-Reasoning%20Agents-blue)](https://github.com/EdwinJdevops/infraguard-agent)
@@ -31,10 +31,10 @@ Meanwhile the attack surface stays open.
 
 ## What InfraGuard Does
 
-InfraGuard is a fully autonomous reasoning agent that runs a closed-loop remediation cycle:
+InfraGuard runs a reviewed remediation cycle:
 Cloud Alert → Phi-4-reasoning → Root Cause Analysis → Terraform Fix → GitOps PR → Teams Notification
 
-The agent detects, thinks, generates, and acts. No dashboards. No tickets. No waiting.
+The agent analyzes findings and prepares remediation pull requests. It does not apply infrastructure changes directly.
 
 ---
 
@@ -132,6 +132,21 @@ InfraGuard uses **Foundry IQ** — the agentic knowledge retrieval layer in Azur
 
 ---
 
+## Production Direction
+
+The first production-grade capability is intentionally narrow: public SSH ingress remediation for AWS security groups.
+
+InfraGuard should open an automatic remediation PR only when:
+
+- public SSH ingress is detected;
+- Terraform ownership is proven;
+- an approved non-public replacement source is provided;
+- validation passes.
+
+If ownership or policy is uncertain, InfraGuard must return `manual_review` instead of pretending the change is safe.
+
+See [docs/architecture.md](docs/architecture.md) and [docs/remediation-contracts.md](docs/remediation-contracts.md).
+
 ## Security Architecture
 
 InfraGuard is built on zero-trust principles with no static credentials in the runtime.
@@ -141,11 +156,11 @@ InfraGuard is built on zero-trust principles with no static credentials in the r
 | Authentication | API key via X-API-Key header |
 | Rate limiting | 10/min analyze, 5/min remediate |
 | Input validation | Pydantic validators, length limits |
-| Confidence gate | Rejects output below 70% confidence |
+| Confidence gate | Must be evidence-based before production use |
 | GitOps compliance | Zero direct infrastructure changes |
 | Kubernetes | Non-root, read-only filesystem, NetworkPolicy |
 | Secrets | Kubernetes Secrets + Azure Workload Identity OIDC |
-| Credentials | No static keys — OIDC token exchange |
+| Credentials | Target design is short-lived identity; current implementation still needs GitHub App/OIDC hardening |
 
 See [SECURITY.md](SECURITY.md) for full threat model.
 

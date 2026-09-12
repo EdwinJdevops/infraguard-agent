@@ -7,3 +7,4 @@ requests==2.32.3
 pydantic==2.13.4
 slowapi==0.1.9
 pymsteams==0.2.2
+pytest==9.0.2
