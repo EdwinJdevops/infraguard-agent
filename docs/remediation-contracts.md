@@ -36,3 +36,8 @@ If any condition fails, InfraGuard must not open an automatic remediation PR.
 - Replacement source.
 - Validation output.
 - Human reviewer checklist.
+
+The evidence bundle must be available in two forms:
+
+- machine-readable JSON for automation and audit storage;
+- reviewer-readable Markdown for the pull request body.
