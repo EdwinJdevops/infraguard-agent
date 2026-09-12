@@ -14,6 +14,14 @@ It does not apply infrastructure changes directly. It produces reviewed pull req
 7. Open a PR with risk, evidence, validation output, and reviewer checklist.
 8. Verify the cloud finding after merge/deploy.
 
+The implemented baseline now covers steps 2-4 for public SSH findings:
+
+- parses Terraform HCL with `python-hcl2`;
+- recognizes legacy `aws_security_group_rule`;
+- recognizes newer `aws_vpc_security_group_ingress_rule`;
+- recognizes inline `aws_security_group` ingress only when Terraform state maps the resource address to the affected `sg-*` ID;
+- returns `manual_review` when ownership is not proven.
+
 ## Ownership Classes
 
 | Ownership | Meaning | Automation Behavior |
