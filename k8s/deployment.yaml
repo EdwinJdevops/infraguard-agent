@@ -5,9 +5,11 @@ metadata:
   namespace: infraguard
   labels:
     app: infraguard-agent
-    version: "1.0.0"
+    version: "0.2.0"
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
+  progressDeadlineSeconds: 300
   selector:
     matchLabels:
       app: infraguard-agent
@@ -15,16 +17,23 @@ spec:
     metadata:
       labels:
         app: infraguard-agent
-        azure.workload.identity/use: "true"
+        version: "0.2.0"
     spec:
       serviceAccountName: infraguard-agent
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000
-        fsGroup: 1000
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: infraguard-agent
-        image: ghcr.io/edwinJdevops/infraguard-agent:latest
+        # Release gate: replace this tag with a scanned and signed image digest.
+        image: ghcr.io/edwinjdevops/infraguard-agent:0.2.0
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8000
         securityContext:
@@ -32,27 +41,31 @@ spec:
           readOnlyRootFilesystem: true
           capabilities:
             drop: ["ALL"]
+          seccompProfile:
+            type: RuntimeDefault
         env:
-        - name: DEPLOYMENT_NAME
-          value: "Phi-4-reasoning"
-        - name: GITHUB_REPO
-          value: "EdwinJdevops/infraguard-agent"
-        # No static credentials — uses Azure Workload Identity OIDC
-        - name: AZURE_ENDPOINT
+        - name: INFRAGUARD_ENVIRONMENT
+          value: "production"
+        - name: INFRAGUARD_DOCS_ENABLED
+          value: "false"
+        - name: INFRAGUARD_TERRAFORM_ROOT
+          value: "/workspace/terraform"
+        - name: INFRAGUARD_ALLOWED_SSH_CIDRS
           valueFrom:
-            secretKeyRef:
-              name: infraguard-secrets
-              key: azure-endpoint
+            configMapKeyRef:
+              name: infraguard-policy
+              key: allowed-ssh-cidrs
         - name: INFRAGUARD_API_KEY
           valueFrom:
             secretKeyRef:
               name: infraguard-secrets
               key: api-key
-        - name: GITHUB_TOKEN
-          valueFrom:
-            secretKeyRef:
-              name: infraguard-secrets
-              key: github-token
+        volumeMounts:
+        - name: terraform-workspace
+          mountPath: /workspace/terraform
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
         resources:
           requests:
             memory: "256Mi"
@@ -62,16 +75,27 @@ spec:
             cpu: "500m"
         livenessProbe:
           httpGet:
-            path: /health
+            path: /livez
             port: 8000
-          initialDelaySeconds: 30
+          initialDelaySeconds: 5
           periodSeconds: 10
+          timeoutSeconds: 2
+          failureThreshold: 3
         readinessProbe:
           httpGet:
-            path: /health
+            path: /readyz
             port: 8000
           initialDelaySeconds: 5
           periodSeconds: 5
+          timeoutSeconds: 2
+          failureThreshold: 3
+      volumes:
+      - name: terraform-workspace
+        persistentVolumeClaim:
+          claimName: infraguard-terraform-workspace
+      - name: tmp
+        emptyDir:
+          sizeLimit: 64Mi
 ---
 apiVersion: v1
 kind: Service

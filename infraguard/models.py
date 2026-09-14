@@ -1,0 +1,113 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import StrEnum
+
+
+class Ownership(StrEnum):
+    TERRAFORM_STANDALONE_RULE = "terraform_standalone_rule"
+    TERRAFORM_INLINE_RULE = "terraform_inline_rule"
+    UNMANAGED_REMOTE_RULE = "unmanaged_remote_rule"
+    UNKNOWN = "unknown"
+
+
+class Decision(StrEnum):
+    AUTO_PR = "auto_pr"
+    MANUAL_REVIEW = "manual_review"
+    REJECT = "reject"
+
+
+@dataclass(frozen=True)
+class SecurityGroupRule:
+    direction: str
+    protocol: str
+    from_port: int
+    to_port: int
+    source: str
+
+    def is_public_ssh(self) -> bool:
+        return (
+            self.direction == "ingress"
+            and self.protocol.lower() == "tcp"
+            and self.from_port <= 22 <= self.to_port
+            and self.source in {"0.0.0.0/0", "::/0"}
+        )
+
+
+@dataclass(frozen=True)
+class SecurityFinding:
+    alert_id: str
+    provider: str
+    account_id: str
+    region: str
+    resource_type: str
+    resource_id: str
+    rule: SecurityGroupRule
+
+
+@dataclass(frozen=True)
+class TerraformResourceRef:
+    address: str
+    ownership: Ownership
+    file_path: str | None = None
+
+
+@dataclass(frozen=True)
+class RemediationDecision:
+    decision: Decision
+    reason: str
+    finding: SecurityFinding
+    ownership: Ownership
+    replacement_source: str | None
+    evidence: list[str] = field(default_factory=list)
+    terraform_resource: TerraformResourceRef | None = None
+
+    @property
+    def can_open_pr(self) -> bool:
+        return self.decision == Decision.AUTO_PR
+
+
+@dataclass(frozen=True)
+class TerraformPatch:
+    file_path: str
+    before: str
+    after: str
+    resource_address: str
+    source_before: str
+    replacement_source: str
+    summary: str
+    diff: str
+
+
+@dataclass(frozen=True)
+class PatchValidation:
+    passed: bool
+    checks: dict[str, bool]
+    errors: list[str] = field(default_factory=list)
+
+    def to_evidence(self) -> dict[str, object]:
+        return {
+            "passed": self.passed,
+            "checks": self.checks,
+            "errors": self.errors,
+        }
+
+
+@dataclass(frozen=True)
+class RemediationRun:
+    decision: RemediationDecision
+    patch: TerraformPatch | None
+    validation: PatchValidation | None
+    evidence_json: dict[str, object] | None
+    pr_markdown: str | None
+
+    @property
+    def can_open_pr(self) -> bool:
+        return (
+            self.decision.decision == Decision.AUTO_PR
+            and self.patch is not None
+            and self.validation is not None
+            and self.validation.passed
+            and self.evidence_json is not None
+            and self.pr_markdown is not None
+        )

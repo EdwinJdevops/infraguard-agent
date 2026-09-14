@@ -1,9 +1,5 @@
 fastapi==0.136.3
 uvicorn==0.34.0
-openai==2.41.0
-azure-identity==1.25.3
-python-dotenv==1.2.2
-requests==2.32.3
+python-hcl2==7.3.1
 pydantic==2.13.4
 slowapi==0.1.9
-pymsteams==0.2.2
