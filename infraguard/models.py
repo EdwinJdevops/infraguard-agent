@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import StrEnum
 
 
@@ -15,6 +19,10 @@ class Decision(StrEnum):
     AUTO_PR = "auto_pr"
     MANUAL_REVIEW = "manual_review"
     REJECT = "reject"
+
+
+class VerificationMethod(StrEnum):
+    AWS_EC2_DESCRIBE_SECURITY_GROUP_RULES = "aws_ec2_describe_security_group_rules"
 
 
 @dataclass(frozen=True)
@@ -34,6 +42,46 @@ class SecurityGroupRule:
         )
 
 
+def security_group_rule_fingerprint(
+    *,
+    account_id: str,
+    resource_id: str,
+    security_group_rule_id: str,
+    rule: SecurityGroupRule,
+) -> str:
+    """Return a stable digest binding a normalized rule to its AWS identity."""
+
+    normalized = {
+        "account_id": account_id,
+        "direction": rule.direction,
+        "from_port": rule.from_port,
+        "protocol": rule.protocol.lower(),
+        "resource_id": resource_id,
+        "security_group_rule_id": security_group_rule_id,
+        "source": rule.source,
+        "to_port": rule.to_port,
+    }
+    payload = json.dumps(normalized, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(payload).hexdigest()
+
+
+@dataclass(frozen=True)
+class FindingProvenance:
+    method: VerificationMethod
+    transport_event_id: str
+    security_hub_finding_id: str
+    product_arn: str
+    source_account_id: str
+    verifier_account_id: str
+    region: str
+    resource_id: str
+    security_group_rule_id: str
+    observed_at: datetime
+    verified_at: datetime
+    aws_request_ids: tuple[str, ...]
+    rule_fingerprint: str
+
+
 @dataclass(frozen=True)
 class SecurityFinding:
     alert_id: str
@@ -43,6 +91,48 @@ class SecurityFinding:
     resource_type: str
     resource_id: str
     rule: SecurityGroupRule
+    provenance: FindingProvenance | None = None
+
+    def has_verified_provenance(self) -> bool:
+        provenance = self.provenance
+        expected_product_arn = re.compile(
+            rf"^arn:aws(?:-us-gov|-cn)?:securityhub:{re.escape(self.region)}::"
+            r"product/aws/securityhub$"
+        )
+        return bool(
+            provenance
+            and self.provider == "aws"
+            and self.resource_type == "aws_security_group"
+            and provenance.method
+            == VerificationMethod.AWS_EC2_DESCRIBE_SECURITY_GROUP_RULES
+            and provenance.transport_event_id
+            and provenance.security_hub_finding_id == self.alert_id
+            and expected_product_arn.fullmatch(provenance.product_arn)
+            and len(provenance.source_account_id) == 12
+            and provenance.source_account_id.isdigit()
+            and provenance.verifier_account_id == self.account_id
+            and provenance.region == self.region
+            and provenance.resource_id == self.resource_id
+            and re.fullmatch(
+                r"sgr-[0-9a-f]{8,17}", provenance.security_group_rule_id
+            )
+            and provenance.aws_request_ids
+            and all(provenance.aws_request_ids)
+            and provenance.observed_at.tzinfo is not None
+            and provenance.observed_at.utcoffset() is not None
+            and provenance.verified_at.tzinfo is not None
+            and provenance.verified_at.utcoffset() is not None
+            and provenance.verified_at >= provenance.observed_at
+            and provenance.rule_fingerprint
+            and re.fullmatch(r"[0-9a-f]{64}", provenance.rule_fingerprint) is not None
+            and provenance.rule_fingerprint
+            == security_group_rule_fingerprint(
+                account_id=self.account_id,
+                resource_id=self.resource_id,
+                security_group_rule_id=provenance.security_group_rule_id,
+                rule=self.rule,
+            )
+        )
 
 
 @dataclass(frozen=True)

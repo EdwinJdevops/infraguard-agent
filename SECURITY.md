@@ -2,9 +2,10 @@
 
 ## Security posture
 
-InfraGuard is an alpha planning service, not an autonomous production remediator. The current
-runtime reads a trusted Terraform checkout and optional state file, then returns an in-memory
-proposal. It has no GitHub client, cloud credentials, Terraform CLI execution, or apply path.
+InfraGuard is an alpha planning service, not an autonomous production remediator. The library has
+a strict Security Hub CSPM parser and read-only AWS rule-verification boundary, but the current
+runtime does not connect it to AWS. The API can only triage untrusted claims. It has no GitHub
+client, cloud credentials, Terraform CLI execution, or apply path.
 
 No claim in this repository should imply that credentials, identity federation, signed artifacts,
 or post-deployment verification exist before the corresponding code and deployment evidence exist.
@@ -31,7 +32,7 @@ policy yet.
 | Terraform source | Integrity-critical; may reveal architecture | Operator-provided read-only checkout |
 | Terraform state | Confidential; may contain secrets | Optional local read-only file; never returned by design |
 | API key | Secret | Process environment or Kubernetes Secret |
-| Finding payload | Integrity-critical; contains account/resource IDs | Authenticated caller, but provenance is not verified |
+| Finding payload | Integrity-critical; contains account/resource IDs | Direct API claims are unverified and cannot produce patches; verified internal objects require live AWS evidence |
 | Generated diff/evidence | Integrity and confidentiality sensitive | Returned to authenticated caller; no durable store |
 | Replacement allowlist | Security policy | Deployment configuration, not caller-controlled |
 
@@ -39,7 +40,8 @@ policy yet.
 
 | Threat | Current mitigation | Residual risk / required production control |
 |---|---|---|
-| Spoofed or stale finding | Strict schema; planner never mutates or publishes | Account, region, and live AWS rule are not verified. Require signed provider events or read-only cloud verification with freshness checks. |
+| Spoofed or stale finding | Direct API claims stop before Terraform scanning; verifier core checks ASFF identity/freshness and current EC2 state | Runtime EventBridge/SQS/STS integration, authentic queue policy, durable replay defense, and real AWS integration tests are absent. |
+| Confused-deputy role use | Verifier requires STS caller account to equal the finding target; event account is separately allowlisted | Runtime role mapping/external-ID policy is not implemented. Never accept a role ARN from event data. |
 | Tampered source checkout | Deployment contract mounts source read-only; source symlinks and root escapes fail closed | The checkout's repository and commit are not authenticated. Use an ephemeral clone from an allowlisted repository and pin the exact base commit SHA. |
 | Tampered or stale state | State is read-only; malformed JSON fails closed | State authenticity, lineage, serial, and freshness are not verified. Obtain state through a trusted backend workflow and bind it to the checkout/workspace. |
 | Ambiguous ownership | Multiple matches raise an error; unknown ownership is manual review | Modules, aliases, `for_each`, `count`, dynamic blocks, and expression evaluation are not supported. A full Terraform graph/plan is required before broader automation. |
@@ -58,6 +60,7 @@ policy yet.
 ## Current non-negotiable controls
 
 - No direct AWS mutation and no `terraform apply`.
+- No Terraform scan or patch from a finding lacking independent live-rule provenance.
 - No PR publication from the API process.
 - No patch unless Terraform ownership is exactly one supported resource.
 - No caller-selected replacement outside the deployment-owned allowlist.

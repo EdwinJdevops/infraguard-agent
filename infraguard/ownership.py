@@ -131,7 +131,7 @@ def _standalone_rule_matches(
         body.get("type") == finding.rule.direction
         and _int_value(body.get("from_port")) == finding.rule.from_port
         and _int_value(body.get("to_port")) == finding.rule.to_port
-        and str(body.get("protocol", "")).lower() == finding.rule.protocol.lower()
+        and _protocol_matches(body.get("protocol"), finding.rule.protocol)
         and finding.rule.source
         in _list_value(
             body.get(
@@ -154,7 +154,7 @@ def _vpc_ingress_rule_matches(
         finding.rule.direction == "ingress"
         and _int_value(body.get("from_port")) == finding.rule.from_port
         and _int_value(body.get("to_port")) == finding.rule.to_port
-        and str(body.get("ip_protocol", "")).lower() == finding.rule.protocol.lower()
+        and _protocol_matches(body.get("ip_protocol"), finding.rule.protocol)
         and body.get("cidr_ipv6" if finding.rule.source == "::/0" else "cidr_ipv4")
         == finding.rule.source
         and _security_group_matches(
@@ -170,7 +170,7 @@ def _inline_rule_matches(body: dict[str, Any], finding: SecurityFinding) -> bool
         if (
             _int_value(ingress.get("from_port")) == finding.rule.from_port
             and _int_value(ingress.get("to_port")) == finding.rule.to_port
-            and str(ingress.get("protocol", "")).lower() == finding.rule.protocol.lower()
+            and _protocol_matches(ingress.get("protocol"), finding.rule.protocol)
             and finding.rule.source in _list_value(ingress.get("cidr_blocks"))
         ):
             return True
@@ -212,6 +212,13 @@ def _int_value(value: Any) -> int | None:
         except ValueError:
             return None
     return None
+
+
+def _protocol_matches(value: Any, expected: str) -> bool:
+    normalized = str(value).lower()
+    if expected.lower() == "tcp":
+        return normalized in {"tcp", "6"}
+    return normalized == expected.lower()
 
 
 def _list_value(value: Any) -> list[Any]:

@@ -22,8 +22,10 @@ rejected.
 | `rule.source` | `0.0.0.0/0` or `::/0` |
 | `replacement_source` | Optional syntactically; required for automatic eligibility |
 
-Authentication does not prove the finding came from AWS. Finding provenance is a production
-release gate.
+Authentication does not prove the finding came from AWS. The HTTP schema intentionally cannot
+assert internal provenance, so direct requests cannot produce a patch and return `manual_review`.
+Trusted findings must be created by the AWS verification core described in
+[`trusted-finding-provenance.md`](trusted-finding-provenance.md).
 
 ## Decision contract
 
@@ -32,6 +34,10 @@ release gate.
 | `auto_pr` | All implemented planning gates passed | Patch, passing validation, evidence, and PR body are returned |
 | `manual_review` | Finding may be real, but ownership or supported editability is not proven | No patch or publication evidence |
 | `reject` | Finding or replacement violates the supported capability/policy | No patch or publication evidence |
+
+For the HTTP endpoint, an otherwise valid public-SSH claim stops at `manual_review` before reading
+Terraform because it has no independent AWS provenance. The `auto_pr` contract applies to internal
+callers that supply a provenance-bound finding; no such runtime worker is currently shipped.
 
 `can_open_pr` is stricter than the decision field: it is true only when an `auto_pr` decision also
 has a patch, passing validation, JSON evidence, and PR Markdown. A future publisher must require
@@ -87,7 +93,8 @@ sufficient for production publication; Terraform CLI validation and plan policy 
 - `/livez` proves only that the process can answer HTTP.
 - `/readyz` and `/health` validate required local configuration and return `503` when unusable.
 - API documentation is disabled unless `INFRAGUARD_DOCS_ENABLED=true`.
-- Planning is limited to five requests per minute per observed client address, per process.
+- Untrusted-claim triage is limited to five requests per minute per observed client address, per
+  process.
 - Responses include a bounded request ID, `Cache-Control: no-store`, and
   `X-Content-Type-Options: nosniff`.
 - The legacy `/remediate` endpoint returns `410 Gone` after authentication.

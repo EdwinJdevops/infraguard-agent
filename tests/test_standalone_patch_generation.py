@@ -4,6 +4,7 @@ from infraguard.models import Decision, SecurityFinding, SecurityGroupRule
 from infraguard.patches import PatchError, generate_standalone_public_ssh_patch, write_patch
 from infraguard.pipeline import plan_from_terraform
 from infraguard.validation import validate_public_ssh_patch
+from tests.factories import verified_provenance
 
 FIXTURES = Path(__file__).parent / "fixtures" / "terraform"
 
@@ -23,6 +24,7 @@ def public_ssh_finding() -> SecurityFinding:
             to_port=22,
             source="0.0.0.0/0",
         ),
+        provenance=verified_provenance(),
     )
 
 
@@ -149,6 +151,7 @@ def test_generates_and_validates_ipv6_vpc_ingress_patch(tmp_path: Path) -> None:
             to_port=22,
             source="::/0",
         ),
+        provenance=verified_provenance(source="::/0"),
     )
     decision = plan_from_terraform(
         finding=ipv6_finding,

@@ -5,6 +5,7 @@ from infraguard.models import SecurityFinding, SecurityGroupRule
 from infraguard.patches import generate_standalone_public_ssh_patch
 from infraguard.pipeline import plan_from_terraform
 from infraguard.validation import validate_public_ssh_patch
+from tests.factories import verified_provenance
 
 FIXTURES = Path(__file__).parent / "fixtures" / "terraform"
 
@@ -24,6 +25,7 @@ def public_ssh_finding() -> SecurityFinding:
             to_port=22,
             source="0.0.0.0/0",
         ),
+        provenance=verified_provenance(),
     )
 
 

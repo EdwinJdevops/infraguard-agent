@@ -5,8 +5,12 @@
 **The baseline is credible as an alpha engineering foundation, but it is not production-ready.**
 
 The deterministic core corrects the fatal behavior in PR #1, narrows automatic scope, fails closed
-on ambiguity, and produces test-backed evidence. Required GitHub Actions jobs have passed on PR
-#2 merge refs. The replacement can be merged as an alpha foundation after branch protection and
+on ambiguity, and produces test-backed evidence. The trusted-finding feature adds a strict
+Security Hub CSPM parser, live EC2 rule binding, and internal provenance-consistency checks. It is
+still only a library boundary: no AWS queue/worker/IAM composition or real-account integration
+test exists, and the checksum is not a signature.
+Required GitHub Actions jobs passed on PR #2 merge refs; this follow-on branch requires its own CI
+evidence. The baseline can be merged as an alpha foundation only after branch protection and
 independent human review. It must not be marketed or deployed as an autonomous production
 remediator.
 
@@ -22,15 +26,15 @@ as superseded by PR #2.
 | Patch | Targeted IPv4/IPv6 standalone rule source replacement | Implemented for documented subset |
 | Validation | Before/after HCL and target semantics plus exact diff-shape check | Implemented, not Terraform-contextual |
 | API | Strict schema, API-key check, readiness, request IDs, sanitized paths/errors, no publication | Implemented baseline |
-| Tests | 46 tests, including read-only API and IPv6/state/path hardening | Passed locally and on PR merge refs in GitHub Actions |
-| Lint | Ruff over `api`, `infraguard`, and `tests` | Passed locally and on PR merge refs in GitHub Actions |
+| Tests | 76 tests, including AWS event/account/freshness/pagination/tamper cases and prior API/Terraform hardening | Passed locally on this feature branch; GitHub CI pending |
+| Lint | Ruff over the repository | Passed locally on this feature branch; GitHub CI pending |
 | Container | Non-root image definition and CI build job | PR merge-ref build passed in GitHub Actions; local Docker was unavailable |
 | Kubernetes | Restricted pod settings and deny-egress policy | YAML parses; no local schema/cluster/CNI verification |
 | External publishing | No GitHub publisher in runtime | Not implemented |
-| Live cloud verification | No AWS integration in runtime | Not implemented |
+| Live cloud verification | Protocol-based STS identity and EC2 rule verification core | Implemented and fake-client tested; runtime composition and real AWS tests open |
 
-CI evidence snapshots: [run 34832593955](https://github.com/EdwinJdevops/infraguard-agent/actions/runs/34832593955)
-and [run 34833668257](https://github.com/EdwinJdevops/infraguard-agent/actions/runs/34833668257).
+Latest PR #2 baseline CI snapshot:
+[run 34834010052](https://github.com/EdwinJdevops/infraguard-agent/actions/runs/34834010052).
 For pull-request events, GitHub Actions checks the synthetic merge ref formed from the PR head and
 current base. The latest required check suite attached to the reviewed head is the release
 evidence; historical run links are snapshots, not substitutes for current checks.
@@ -41,7 +45,7 @@ evidence; historical run links are snapshots, not substitutes for current checks
 |---|---|---|---|
 | P0 | Close/supersede unsafe PR #1 | PR records why additive rules do not remediate exposure | Completed: closed unmerged in favor of PR #2 |
 | P0 | Protected branch and mandatory CI | Ruleset requires tests, container build, review, resolved conversations, and blocks force push | CI implemented and green; `main` protection still open |
-| P0 | Verified finding provenance | Signed provider event or read-only AWS lookup binds account, region, SG, rule, and observation time | Open |
+| P0 | Verified finding provenance | Security Hub event and read-only AWS lookup bind account, region, SG, rule, request IDs, and times | Core implemented and locally tested; runtime AWS/SQS/STS composition and real-account evidence open |
 | P0 | Immutable repository input | Ephemeral clone of allowlisted repository at exact SHA; source digest recorded | Open |
 | P0 | Contextual Terraform validation | Isolated `fmt`, `init -backend=false`, `validate`, and policy-checked plan JSON attached as evidence | Open |
 | P0 | Safe publisher boundary | Dedicated GitHub App, short-lived installation token, base-SHA recheck, no force push, no direct main write | Open |
@@ -65,15 +69,19 @@ level requires evidence, not a workflow label: [SLSA levels](https://slsa.dev/sp
 
 ### Phase 0 — merge the honest baseline
 
-1. Publish this branch and run CI.
-2. Review code and security contracts; fix every failed check.
-3. Close PR #1 as unsafe and superseded.
-4. Merge only after required human review. Tag it as an alpha baseline, not a production release.
+1. Keep PR #2 draft until a `main` ruleset requires the named CI jobs, one independent approval,
+   resolved conversations, and blocks force pushes/deletion.
+2. Obtain independent code/security review against the current PR #2 head and merge-ref checks.
+3. Merge only after those controls are evidenced. Tag it as an alpha baseline, not a production
+   release.
+
+PR #1 is already closed unmerged as unsafe and superseded; PR #2 is published and its latest
+baseline merge-ref CI is green. Governance remains the blocking Phase 0 work.
 
 ### Phase 1 — trustworthy inputs and immutable analysis
 
-1. Define a versioned finding envelope with detector, event ID, observed time, account, region,
-   resource/rule identity, and signature/verification metadata.
+1. Deploy the accepted EC2.13 ASFF contract behind EventBridge, encrypted SQS/DLQ, allowlisted role
+   mapping, mandatory freshness policy, and bounded AWS retries.
 2. Add tenant/repository policy mapping; callers cannot choose arbitrary repositories or allowlists.
 3. Create a durable workflow record and idempotency key.
 4. Run each analysis in an ephemeral workspace cloned at a recorded SHA.

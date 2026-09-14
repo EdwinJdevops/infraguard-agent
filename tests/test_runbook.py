@@ -2,6 +2,7 @@ from pathlib import Path
 
 from infraguard.models import Decision, SecurityFinding, SecurityGroupRule
 from infraguard.runbook import run_public_ssh_remediation
+from tests.factories import verified_provenance
 
 FIXTURES = Path(__file__).parent / "fixtures" / "terraform"
 
@@ -21,6 +22,7 @@ def public_ssh_finding() -> SecurityFinding:
             to_port=22,
             source="0.0.0.0/0",
         ),
+        provenance=verified_provenance(),
     )
 
 

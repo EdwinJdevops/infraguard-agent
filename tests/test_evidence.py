@@ -5,6 +5,7 @@ from infraguard.models import SecurityFinding, SecurityGroupRule
 from infraguard.patches import generate_standalone_public_ssh_patch
 from infraguard.pipeline import plan_from_terraform
 from infraguard.validation import validate_public_ssh_patch
+from tests.factories import verified_provenance
 
 FIXTURES = Path(__file__).parent / "fixtures" / "terraform"
 
@@ -24,6 +25,7 @@ def public_ssh_finding() -> SecurityFinding:
             to_port=22,
             source="0.0.0.0/0",
         ),
+        provenance=verified_provenance(),
     )
 
 
@@ -44,6 +46,12 @@ def test_builds_machine_readable_evidence(tmp_path: Path) -> None:
     assert evidence["ownership"] == "terraform_standalone_rule"
     assert evidence["replacement_source"] == "10.20.30.40/32"
     assert evidence["validation"]["passed"] is True  # type: ignore[index]
+    provenance = evidence["finding_provenance"]
+    assert isinstance(provenance, dict)
+    assert provenance["method"] == "aws_ec2_describe_security_group_rules"
+    assert provenance["security_group_rule_id"] == "sgr-1234567890abcdef0"
+    assert provenance["aws_request_ids"] == ["sts-request-001", "ec2-request-001"]
+    assert len(str(provenance["rule_fingerprint"])) == 64
 
 
 def test_builds_pr_markdown_with_diff_and_checks(tmp_path: Path) -> None:
@@ -61,7 +69,8 @@ def test_builds_pr_markdown_with_diff_and_checks(tmp_path: Path) -> None:
     assert "## InfraGuard Remediation Evidence" in markdown
     assert "`auto_pr`" in markdown
     assert "`terraform_standalone_rule`" in markdown
+    assert "`sgr-1234567890abcdef0`" in markdown
+    assert "`aws_ec2_describe_security_group_rules`" in markdown
     assert "- [x] `after_removes_target_public_ssh`" in markdown
     assert '-  cidr_blocks       = ["0.0.0.0/0"]' in markdown
     assert '+  cidr_blocks       = ["10.20.30.40/32"]' in markdown
-
