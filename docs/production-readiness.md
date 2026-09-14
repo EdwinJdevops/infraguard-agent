@@ -26,8 +26,8 @@ as superseded by PR #2.
 | Patch | Targeted IPv4/IPv6 standalone rule source replacement | Implemented for documented subset |
 | Validation | Before/after HCL and target semantics plus exact diff-shape check | Implemented, not Terraform-contextual |
 | API | Strict schema, API-key check, readiness, request IDs, sanitized paths/errors, no publication | Implemented baseline |
-| Tests | 76 tests, including AWS event/account/freshness/pagination/tamper cases and prior API/Terraform hardening | Passed locally on this feature branch; GitHub CI pending |
-| Lint | Ruff over the repository | Passed locally on this feature branch; GitHub CI pending |
+| Tests | 76 tests, including AWS event/account/freshness/pagination/tamper cases and prior API/Terraform hardening | Passed locally; the current stacked-PR merge ref must also be green |
+| Lint | Ruff over the repository | Passed locally; the current stacked-PR merge ref must also be green |
 | Container | Non-root image definition and CI build job | PR merge-ref build passed in GitHub Actions; local Docker was unavailable |
 | Kubernetes | Restricted pod settings and deny-egress policy | YAML parses; no local schema/cluster/CNI verification |
 | External publishing | No GitHub publisher in runtime | Not implemented |
