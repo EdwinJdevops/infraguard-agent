@@ -153,6 +153,22 @@ def test_malformed_state_is_not_silently_ignored(tmp_path: Path) -> None:
         classify_security_group_ownership(public_ssh_finding(), tmp_path, state)
 
 
+def test_terraform_symlink_cannot_escape_configured_root(tmp_path: Path) -> None:
+    terraform_root = tmp_path / "terraform"
+    terraform_root.mkdir()
+    outside = tmp_path / "outside.tf"
+    outside.write_text(
+        (FIXTURES / "standalone_public_ssh" / "security-groups.tf").read_text(
+            encoding="utf-8"
+        ),
+        encoding="utf-8",
+    )
+    (terraform_root / "escape.tf").symlink_to(outside)
+
+    with pytest.raises(OwnershipError, match="symlinks are not supported"):
+        classify_security_group_ownership(public_ssh_finding(), terraform_root)
+
+
 @pytest.mark.parametrize(
     ("resource_type", "source_attribute"),
     [

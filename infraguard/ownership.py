@@ -21,7 +21,9 @@ def classify_security_group_ownership(
 ) -> TerraformResourceRef | None:
     state_attributes = _load_state_resource_attributes(terraform_state_path)
     matches: list[TerraformResourceRef] = []
-    for file_path in sorted(terraform_root.rglob("*.tf")):
+    trusted_root = terraform_root.resolve()
+    for discovered_path in sorted(trusted_root.rglob("*.tf")):
+        file_path = _trusted_terraform_file(discovered_path, trusted_root)
         try:
             parsed = _load_hcl(file_path)
         except Exception as exc:
@@ -66,6 +68,19 @@ def classify_security_group_ownership(
         addresses = ", ".join(match.address for match in matches)
         raise OwnershipError(f"multiple Terraform resources match finding: {addresses}")
     return matches[0] if matches else None
+
+
+def _trusted_terraform_file(file_path: Path, trusted_root: Path) -> Path:
+    if file_path.is_symlink():
+        raise OwnershipError("Terraform source symlinks are not supported")
+    try:
+        resolved = file_path.resolve(strict=True)
+        resolved.relative_to(trusted_root)
+    except (OSError, ValueError) as exc:
+        raise OwnershipError("Terraform source resolves outside the configured root") from exc
+    if not resolved.is_file():
+        raise OwnershipError("Terraform source path is not a regular file")
+    return resolved
 
 
 def _load_hcl(file_path: Path) -> dict[str, Any]:
