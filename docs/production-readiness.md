@@ -21,7 +21,7 @@ removing the public allow rule. Close it as superseded; do not merge or stack pr
 | Patch | Targeted IPv4/IPv6 standalone rule source replacement | Implemented for documented subset |
 | Validation | Before/after HCL and target semantics plus exact diff-shape check | Implemented, not Terraform-contextual |
 | API | Strict schema, API-key check, readiness, request IDs, sanitized paths/errors, no publication | Implemented baseline |
-| Tests | 46 local tests after IPv6/state/path hardening | Passing locally at this checkpoint |
+| Tests | 46 local tests, including read-only API and IPv6/state/path hardening | Passing locally at this checkpoint |
 | Lint | Ruff over `api`, `infraguard`, and `tests` | Passing locally at this checkpoint |
 | Container | Non-root image definition and CI build job | Local Docker build not verified in this environment |
 | Kubernetes | Restricted pod settings and deny-egress policy | YAML parses; no local schema/cluster/CNI verification |

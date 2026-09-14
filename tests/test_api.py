@@ -78,6 +78,8 @@ def test_remediation_plan_requires_authentication() -> None:
 
 def test_remediation_plan_returns_validated_proposal_without_publishing() -> None:
     terraform_root = (FIXTURES / "standalone_public_ssh").resolve()
+    target_file = terraform_root / "security-groups.tf"
+    source_before = target_file.read_text(encoding="utf-8")
     response = client(terraform_root).post(
         "/v1/remediation-plans",
         headers={"X-API-Key": API_KEY, "X-Request-ID": "request-123"},
@@ -93,6 +95,7 @@ def test_remediation_plan_returns_validated_proposal_without_publishing() -> Non
     assert body["patch"]["file_path"] == "security-groups.tf"
     assert body["validation"]["passed"] is True
     assert str(terraform_root) not in response.text
+    assert target_file.read_text(encoding="utf-8") == source_before
 
 
 def test_unknown_ownership_returns_manual_review_without_patch() -> None:
