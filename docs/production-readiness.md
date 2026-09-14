@@ -5,8 +5,8 @@
 **The baseline is credible as an alpha engineering foundation, but it is not production-ready.**
 
 The deterministic core corrects the fatal behavior in PR #1, narrows automatic scope, fails closed
-on ambiguity, and produces test-backed evidence. GitHub Actions passed on baseline commit
-`430b6b8`; the replacement can be merged as an alpha foundation after branch protection and
+on ambiguity, and produces test-backed evidence. Required GitHub Actions jobs have passed on PR
+#2 merge refs. The replacement can be merged as an alpha foundation after branch protection and
 independent human review. It must not be marketed or deployed as an autonomous production
 remediator.
 
@@ -22,14 +22,18 @@ as superseded by PR #2.
 | Patch | Targeted IPv4/IPv6 standalone rule source replacement | Implemented for documented subset |
 | Validation | Before/after HCL and target semantics plus exact diff-shape check | Implemented, not Terraform-contextual |
 | API | Strict schema, API-key check, readiness, request IDs, sanitized paths/errors, no publication | Implemented baseline |
-| Tests | 46 tests, including read-only API and IPv6/state/path hardening | Passed locally and in GitHub Actions at `430b6b8` |
-| Lint | Ruff over `api`, `infraguard`, and `tests` | Passed locally and in GitHub Actions at `430b6b8` |
-| Container | Non-root image definition and CI build job | GitHub Actions build passed at `430b6b8`; local Docker was unavailable |
+| Tests | 46 tests, including read-only API and IPv6/state/path hardening | Passed locally and on PR merge refs in GitHub Actions |
+| Lint | Ruff over `api`, `infraguard`, and `tests` | Passed locally and on PR merge refs in GitHub Actions |
+| Container | Non-root image definition and CI build job | PR merge-ref build passed in GitHub Actions; local Docker was unavailable |
 | Kubernetes | Restricted pod settings and deny-egress policy | YAML parses; no local schema/cluster/CNI verification |
 | External publishing | No GitHub publisher in runtime | Not implemented |
 | Live cloud verification | No AWS integration in runtime | Not implemented |
 
-Baseline CI evidence: [GitHub Actions run 34832593955](https://github.com/EdwinJdevops/infraguard-agent/actions/runs/34832593955).
+CI evidence snapshots: [run 34832593955](https://github.com/EdwinJdevops/infraguard-agent/actions/runs/34832593955)
+and [run 34833668257](https://github.com/EdwinJdevops/infraguard-agent/actions/runs/34833668257).
+For pull-request events, GitHub Actions checks the synthetic merge ref formed from the PR head and
+current base. The latest required check suite attached to the reviewed head is the release
+evidence; historical run links are snapshots, not substitutes for current checks.
 
 ## Release gates
 
