@@ -5,12 +5,13 @@
 **The baseline is credible as an alpha engineering foundation, but it is not production-ready.**
 
 The deterministic core corrects the fatal behavior in PR #1, narrows automatic scope, fails closed
-on ambiguity, and produces test-backed evidence. It can be merged as a replacement foundation if
-CI passes and review confirms the diff. It must not be marketed or deployed as an autonomous
-production remediator.
+on ambiguity, and produces test-backed evidence. GitHub Actions passed on baseline commit
+`430b6b8`; the replacement can be merged as an alpha foundation after branch protection and
+independent human review. It must not be marketed or deployed as an autonomous production
+remediator.
 
-PR #1 is a merge blocker in its current form because it adds a restricted allow rule without
-removing the public allow rule. Close it as superseded; do not merge or stack production work on it.
+PR #1 added a restricted allow rule without removing the public allow rule. It was closed unmerged
+as superseded by PR #2.
 
 ## Evidence at this checkpoint
 
@@ -21,21 +22,21 @@ removing the public allow rule. Close it as superseded; do not merge or stack pr
 | Patch | Targeted IPv4/IPv6 standalone rule source replacement | Implemented for documented subset |
 | Validation | Before/after HCL and target semantics plus exact diff-shape check | Implemented, not Terraform-contextual |
 | API | Strict schema, API-key check, readiness, request IDs, sanitized paths/errors, no publication | Implemented baseline |
-| Tests | 46 local tests, including read-only API and IPv6/state/path hardening | Passing locally at this checkpoint |
-| Lint | Ruff over `api`, `infraguard`, and `tests` | Passing locally at this checkpoint |
-| Container | Non-root image definition and CI build job | Local Docker build not verified in this environment |
+| Tests | 46 tests, including read-only API and IPv6/state/path hardening | Passed locally and in GitHub Actions at `430b6b8` |
+| Lint | Ruff over `api`, `infraguard`, and `tests` | Passed locally and in GitHub Actions at `430b6b8` |
+| Container | Non-root image definition and CI build job | GitHub Actions build passed at `430b6b8`; local Docker was unavailable |
 | Kubernetes | Restricted pod settings and deny-egress policy | YAML parses; no local schema/cluster/CNI verification |
 | External publishing | No GitHub publisher in runtime | Not implemented |
 | Live cloud verification | No AWS integration in runtime | Not implemented |
 
-Local results are not release evidence until the published branch runs in GitHub Actions.
+Baseline CI evidence: [GitHub Actions run 34832593955](https://github.com/EdwinJdevops/infraguard-agent/actions/runs/34832593955).
 
 ## Release gates
 
 | Priority | Gate | Exit evidence | Status |
 |---|---|---|---|
-| P0 | Close/supersede unsafe PR #1 | PR records why additive rules do not remediate exposure | Open until GitHub action completed |
-| P0 | Protected branch and mandatory CI | Ruleset requires tests, container build, review, resolved conversations, and blocks force push | Open |
+| P0 | Close/supersede unsafe PR #1 | PR records why additive rules do not remediate exposure | Completed: closed unmerged in favor of PR #2 |
+| P0 | Protected branch and mandatory CI | Ruleset requires tests, container build, review, resolved conversations, and blocks force push | CI implemented and green; `main` protection still open |
 | P0 | Verified finding provenance | Signed provider event or read-only AWS lookup binds account, region, SG, rule, and observation time | Open |
 | P0 | Immutable repository input | Ephemeral clone of allowlisted repository at exact SHA; source digest recorded | Open |
 | P0 | Contextual Terraform validation | Isolated `fmt`, `init -backend=false`, `validate`, and policy-checked plan JSON attached as evidence | Open |
