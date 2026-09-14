@@ -53,7 +53,7 @@ def test_pipeline_proves_inline_rule_only_with_state() -> None:
     decision = plan_from_terraform(
         finding=public_ssh_finding(),
         terraform_root=FIXTURES / "inline_public_ssh",
-        terraform_state_path=FIXTURES / "inline_public_ssh" / "terraform.tfstate",
+        terraform_state_path=FIXTURES / "inline_public_ssh" / "terraform-state.json",
         replacement_source="10.20.30.40/32",
     )
 

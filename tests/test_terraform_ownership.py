@@ -52,7 +52,7 @@ def test_classifies_inline_security_group_rule() -> None:
     ref = classify_security_group_ownership(
         finding=public_ssh_finding(),
         terraform_root=FIXTURES / "inline_public_ssh",
-        terraform_state_path=FIXTURES / "inline_public_ssh" / "terraform.tfstate",
+        terraform_state_path=FIXTURES / "inline_public_ssh" / "terraform-state.json",
     )
 
     assert ref is not None
