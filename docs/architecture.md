@@ -1,59 +1,122 @@
-# InfraGuard Production Architecture
+# Architecture
 
-InfraGuard is a GitOps-first remediation PR system for cloud security findings.
-It does not apply infrastructure changes directly. It produces reviewed pull requests with evidence.
+## Architectural position
 
-## Core Flow
+InfraGuard is a deterministic GitOps remediation planner. The current service stops before all
+external writes. A production system should split intake, analysis, publication, and verification
+into separately authorized components so that parsing a finding never grants repository or cloud
+mutation privileges.
 
-1. Normalize cloud security finding.
-2. Correlate the affected cloud resource with Terraform state and source files.
-3. Classify Terraform ownership.
-4. Make a policy decision: auto PR, manual review, or reject.
-5. Generate a remediation patch only when ownership and replacement policy are proven.
-6. Validate the patch before PR creation.
-7. Open a PR with risk, evidence, validation output, and reviewer checklist.
-8. Verify the cloud finding after merge/deploy.
+## Current implemented flow
 
-The implemented baseline now covers steps 2-4 for public SSH findings:
+```mermaid
+flowchart TD
+    A[Authenticated request] --> B[Strict finding schema]
+    B --> C[Read trusted Terraform source and optional state]
+    C --> D{Exactly one owner?}
+    D -->|No or inline| E[Manual review]
+    D -->|Malformed or ambiguous| F[Fail closed]
+    D -->|Supported standalone rule| G[Allowlist policy]
+    G -->|Rejected| H[Reject]
+    G -->|Approved| I[Generate targeted source diff]
+    I --> J[Parse and semantic checks]
+    J -->|Pass| K[Return patch and evidence]
+    J -->|Fail| F
+```
 
-- parses Terraform HCL with `python-hcl2`;
-- recognizes legacy `aws_security_group_rule`;
-- recognizes newer `aws_vpc_security_group_ingress_rule`;
-- recognizes inline `aws_security_group` ingress only when Terraform state maps the resource address to the affected `sg-*` ID;
-- returns `manual_review` when ownership is not proven.
-- generates standalone-resource patches for proven `aws_security_group_rule` and `aws_vpc_security_group_ingress_rule` matches.
-- validates generated patches by parsing patched HCL and proving public SSH is absent from the patched output.
-- exposes an end-to-end runbook function that returns decision, patch, validation, JSON evidence, and PR Markdown.
+The API process has no GitHub client and does not write the mounted checkout. The lower-level
+`write_patch` helper exists for tests and future isolated workers; the API does not call it.
 
-## Ownership Classes
+## Decision boundary
 
-| Ownership | Meaning | Automation Behavior |
+The automation boundary is an explicit conjunction:
+
+```text
+public SSH finding
+AND exactly one supported Terraform owner
+AND operator-approved replacement source
+AND targeted patch generated
+AND every local validation check passes
+= can_open_pr
+```
+
+`can_open_pr` is eligibility, not publication. `publication` remains `not_attempted`.
+
+## Current component responsibilities
+
+| Component | Responsibility | Explicitly does not do |
 |---|---|---|
-| `terraform_standalone_rule` | The offending rule is managed as a standalone Terraform security group rule resource. | PR can be generated after policy validation. |
-| `terraform_inline_rule` | The offending rule is inside an `aws_security_group` inline ingress block and Terraform state proves that resource maps to the affected `sg-*` ID. | PR can be generated after source edit support is implemented. |
-| `unmanaged_remote_rule` | The rule exists in AWS but is not proven in Terraform. | Manual review only. |
-| `unknown` | InfraGuard cannot prove ownership. | Manual review only. |
+| `api/` | Configuration readiness, authentication, schema validation, throttling, response sanitization | Clone, write files, call AWS/GitHub, publish PRs |
+| `infraguard/ownership.py` | Parse HCL/state and prove one supported owner | Evaluate arbitrary Terraform expressions or modules |
+| `infraguard/policy.py` | Normalize and constrain replacement CIDRs | Decide whether a network is operationally reachable |
+| `infraguard/patches.py` | Produce an in-memory targeted static-HCL change | Apply Terraform or commit to Git |
+| `infraguard/validation.py` | Compare before/after semantics and diff shape | Provider-aware validation or plan evaluation |
+| `infraguard/evidence.py` | Build machine and reviewer evidence | Sign or persist evidence |
 
-## First Supported Remediation
+## Ownership proof currently supported
 
-The first production capability is public SSH ingress remediation for AWS security groups:
+InfraGuard scans root-module `.tf` files and supports these static forms:
 
-- direction: ingress
-- protocol: tcp
-- port: 22
-- source: `0.0.0.0/0` or `::/0`
+- `aws_security_group_rule` using `cidr_blocks` or `ipv6_cidr_blocks`;
+- `aws_vpc_security_group_ingress_rule` using `cidr_ipv4` or `cidr_ipv6`;
+- literal `security_group_id = "sg-..."`;
+- state attributes proving the standalone rule's `security_group_id`;
+- a simple `aws_security_group.NAME.id` reference when matching state proves that root resource's
+  ID;
+- inline ingress classification when state proves the parent `aws_security_group` ID.
 
-Automatic PR creation requires:
+Inline rules are deliberately `manual_review`. Modules, nested module addresses, indexed
+instances, aliases, dynamic blocks, locals, variables, data sources, and general expression
+evaluation are outside the automatic patch boundary.
 
-- public SSH detected;
-- Terraform ownership proven;
-- approved non-public replacement source provided;
-- validation passes.
+## Target production architecture
 
-## Non-Goals For The First Production Slice
+```mermaid
+flowchart TD
+    A[Verified finding intake] --> B[Durable dedupe and workflow state]
+    B --> C[Ephemeral analysis worker]
+    C --> D[Policy and Terraform plan gate]
+    D -->|Approved| E[Isolated GitHub App publisher]
+    D -->|Unclear| F[Human review queue]
+    E --> G[Protected CI and reviewer approval]
+    G --> H[Deployment by existing IaC pipeline]
+    H --> I[Independent cloud verifier]
+    I --> B
+```
 
-- Direct AWS mutation.
-- Direct Terraform apply.
-- Multi-cloud remediation.
-- Broad S3/IAM/RDS remediation.
-- LLM-generated HCL without deterministic validation.
+### Required properties
+
+1. **Verified intake:** accept signed provider events or perform a read-only live lookup. Bind
+   account, region, resource, rule identity, observed time, and detector/version.
+2. **Durable workflow:** persist a state machine such as `received -> analyzed -> proposed ->
+   published -> merged -> deployed -> verified`, plus terminal rejection and failure states.
+3. **Immutable analysis:** clone an allowlisted repository into an ephemeral workspace at an exact
+   base SHA. Record repository ID, base SHA, file digest, state lineage/serial, policy version, and
+   engine version.
+4. **Contextual Terraform gate:** run formatting, `terraform init -backend=false`, validation,
+   provider lock verification, and an isolated plan. Apply policy to the plan JSON, not only source
+   text.
+5. **Separated publisher:** mint a short-lived GitHub App installation token only after all gates
+   pass. Recheck the base SHA and file digest, create a namespaced branch, and publish one PR.
+6. **Protected merge:** require CI, CODEOWNERS/reviewer approval, conversation resolution, and
+   branch/ruleset protections. InfraGuard never bypasses these controls.
+7. **Independent verification:** after the normal deployment pipeline runs, query AWS and prove the
+   public rule is gone. Reopen/escalate if exposure remains.
+8. **Tamper-evident evidence:** store hashes and lifecycle transitions in a durable append-only
+   audit store with retention and access controls.
+
+## Availability and scaling
+
+The current deployment intentionally uses one replica because rate limiting is in memory and there
+is no distributed idempotency. It is incorrect to call the service horizontally scalable today.
+Production scale requires a shared limiter, durable queue/state, per-tenant quotas, concurrency
+control, worker backpressure, and explicit retry/dead-letter behavior.
+
+## Deployment model
+
+The unsafe model-driven publisher prototype is preserved in Git history, not in the shipping tree.
+
+The Kubernetes manifests are a security-oriented deployment contract for the read-only API, not a
+complete platform. They require operator-created secrets, policy configuration, a trusted checkout
+PVC, ingress/TLS, and a built/scanned/signed image. See [`../k8s/README.md`](../k8s/README.md) and
+[`operations.md`](operations.md).

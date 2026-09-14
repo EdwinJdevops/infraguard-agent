@@ -1,266 +1,128 @@
-# InfraGuard Agent
+# InfraGuard
 
-> GitOps-first cloud security remediation system that turns validated findings into reviewed Terraform pull requests with evidence.
+InfraGuard is an evidence-first remediation planner for Terraform-managed cloud security
+findings. Its first supported slice detects an AWS security group rule that exposes SSH to the
+internet, proves which Terraform resource owns that rule, proposes a source-CIDR replacement,
+and returns a validated patch plus review evidence.
 
-[![Live API](https://img.shields.io/badge/API-Live-green)](https://infraguard-agent.onrender.com)
-[![Track](https://img.shields.io/badge/Track-Reasoning%20Agents-blue)](https://github.com/EdwinJdevops/infraguard-agent)
-[![IQ Layer](https://img.shields.io/badge/IQ%20Layer-Foundry%20IQ-purple)](https://ai.azure.com)
-[![Model](https://img.shields.io/badge/Model-Phi--4--reasoning-orange)](https://ai.azure.com)
+**Status: alpha production baseline.** The deterministic planning core and read-only API are
+implemented and locally tested. InfraGuard does **not** yet clone repositories, create branches,
+publish pull requests, run `terraform plan`, or verify a finding after deployment. Do not describe
+this repository as production-ready until the release gates in
+[`docs/production-readiness.md`](docs/production-readiness.md) are closed.
 
+## Why PR #1 must not merge
 
-## 🎥 Demo Video
+The original remediation PR adds a restricted SSH allow rule but leaves the existing
+`0.0.0.0/0` rule in place. AWS security group rules are additive, so the effective exposure is
+unchanged. That is not a remediation. The replacement baseline changes the source on the
+Terraform resource that owns the public rule and proves the target rule no longer contains a
+public SSH source.
 
-[![InfraGuard Demo](https://img.shields.io/badge/Watch-Demo%20Video-red)](https://youtu.be/aGAIfhqW_-E)
+## Implemented scope
 
-Watch the full autonomous remediation loop: alert detection → Phi-4 reasoning → Terraform generation → GitOps PR creation.
+| Capability | Current behavior |
+|---|---|
+| Provider/finding | AWS security group ingress, TCP port range containing 22 |
+| Public sources | `0.0.0.0/0` and `::/0` |
+| Standalone resources | `aws_security_group_rule` and `aws_vpc_security_group_ingress_rule` |
+| Inline `aws_security_group.ingress` | Ownership classification only; always `manual_review` |
+| Ownership proof | Exact literal security-group ID, matching rule state, or a simple root-module security-group reference proven by state |
+| Replacement policy | Exact deployment allowlist entry that is RFC1918 IPv4 or IPv6 ULA |
+| Patch validation | Targeted one-line source change, HCL parse, target-rule semantic checks |
+| Publication | Not implemented; API always returns `publication: not_attempted` |
+| Infrastructure mutation | Never performed |
 
-**Microsoft AI Skill Fest — Agents League Hackathon 2026**
-**Track:** Reasoning Agents | **IQ Layer:** Foundry IQ | **Model:** Phi-4-reasoning
+`decision: auto_pr` means the proposal is eligible for a future publisher. It does not mean a
+branch or pull request exists. Only `can_open_pr: true` indicates that decision, patch, validation,
+and evidence are all present in the returned planning result.
 
----
+## Quick start
 
-## The Problem
-
-Every cloud security team shares the same nightmare: alerts fire at 2AM, engineers scramble to understand what happened, manually write Terraform fixes, open PRs, wait for review cycles. The average time from alert to remediation is **4-6 hours**.
-
-Meanwhile the attack surface stays open.
-
-**InfraGuard collapses that window to under 30 seconds.**
-
----
-
-## What InfraGuard Does
-
-InfraGuard runs a reviewed remediation cycle:
-Cloud Alert → Phi-4-reasoning → Root Cause Analysis → Terraform Fix → GitOps PR → Teams Notification
-
-The agent analyzes findings and prepares remediation pull requests. It does not apply infrastructure changes directly.
-
----
-
-
-## 🎮 Live Interactive Dashboard
-
-**[→ Launch Dashboard](https://infraguard-agent.onrender.com/dashboard)**
-
-No curl commands needed. Select an alert scenario and watch InfraGuard:
-- Run its 7-step reasoning trace in real time
-- Generate Terraform fixes and create live GitHub PRs
-- Correlate multiple alerts into compound attack chains
-
-This is the agent working live — not a recording.
-
-## Live Demo
-
-🌐 **API:** https://infraguard-agent.onrender.com  
-📖 **Docs:** https://infraguard-agent.onrender.com/docs
+Python 3.12 is the tested runtime.
 
 ```bash
-# Health check
-curl https://infraguard-agent.onrender.com/health   -H "X-API-Key: infraguard-demo-key-2026"
+python -m venv .venv
+. .venv/bin/activate
+python -m pip install --requirement requirements-dev.txt
+```
 
-# Analyze a threat
-curl -X POST https://infraguard-agent.onrender.com/analyze   -H "Content-Type: application/json"   -H "X-API-Key: infraguard-demo-key-2026"   -d '{
-    "id": "alert-001",
-    "severity": "high",
-    "resource": "aws_security_group",
-    "issue": "Security group allows unrestricted inbound access on port 22",
+Copy `.env.example` values into your process environment. At minimum, configure:
+
+```bash
+export INFRAGUARD_API_KEY='replace-with-a-random-secret-at-least-32-characters'
+export INFRAGUARD_TERRAFORM_ROOT='/absolute/path/to/a/trusted/terraform-checkout'
+export INFRAGUARD_ALLOWED_SSH_CIDRS='10.20.30.40/32,fd00:1234::/64'
+python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
+```
+
+If the security group is referenced rather than written as a literal ID, set
+`INFRAGUARD_TERRAFORM_STATE_PATH` to a matching local state JSON file. Terraform state can contain
+secrets; mount it read-only and do not log, commit, or return it.
+
+Example request:
+
+```bash
+curl --fail-with-body \
+  --request POST http://127.0.0.1:8000/v1/remediation-plans \
+  --header "X-API-Key: ${INFRAGUARD_API_KEY}" \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "alert_id": "finding-001",
+    "provider": "aws",
+    "account_id": "123456789012",
     "region": "us-east-1",
-    "account": "production"
-  }'
-
-# Full autonomous remediation — creates GitHub PR automatically
-curl -X POST https://infraguard-agent.onrender.com/remediate   -H "Content-Type: application/json"   -H "X-API-Key: infraguard-demo-key-2026"   -d '{
-    "id": "alert-002",
-    "severity": "critical",
-    "resource": "aws_s3_bucket",
-    "issue": "S3 bucket has public read access enabled",
-    "region": "us-east-1",
-    "account": "production"
+    "resource_type": "aws_security_group",
+    "resource_id": "sg-1234567890abcdef0",
+    "rule": {
+      "direction": "ingress",
+      "protocol": "tcp",
+      "from_port": 22,
+      "to_port": 22,
+      "source": "0.0.0.0/0"
+    },
+    "replacement_source": "10.20.30.40/32"
   }'
 ```
 
----
+The Terraform root must contain exactly one supported resource matching the finding. Unknown or
+ambiguous ownership returns `manual_review` or a sanitized `422`; it does not guess.
 
-## Architecture
-┌─────────────────────────────────────────────────────────────────┐
-│                      InfraGuard Agent                           │
-│                                                                  │
-│  Alert Input (JSON API)                                         │
-│       ↓                                                          │
-│  Input Validation + Rate Limiting + API Key Auth                │
-│       ↓                                                          │
-│  Azure AI Foundry — Foundry IQ                                  │
-│  Phi-4-reasoning (multi-step reasoning chain)                   │
-│       ↓                                                          │
-│  Structured Analysis                                             │
-│  • Root cause identification                                     │
-│  • Blast radius assessment                                       │
-│  • Confidence scoring (threshold: 70%)                          │
-│       ↓                                                          │
-│  Confidence Gate — rejects hallucinated output                  │
-│       ↓                                                          │
-│  Terraform HCL Generator                                        │
-│  • Resource-specific remediation code                           │
-│  • Security best practice enforcement                           │
-│       ↓                                                          │
-│  GitOps PR Engine                                               │
-│  • Branch creation with timestamp                               │
-│  • Audit artifact commit                                        │
-│  • PR with full compliance checklist                            │
-│  • NO direct infrastructure changes                             │
-│       ↓                                                          │
-│  Microsoft Teams Webhook Notification                           │
-│  • Instant alert to security channel                            │
-│  • PR link + confidence score + blast radius                    │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-
----
-
-## Microsoft IQ Integration
-
-InfraGuard uses **Foundry IQ** — the agentic knowledge retrieval layer in Azure AI Foundry.
-
-| Component | Implementation |
-|-----------|---------------|
-| Model | Phi-4-reasoning (Microsoft frontier reasoning model) |
-| Platform | Azure AI Foundry |
-| IQ Layer | Foundry IQ |
-| Capability | Multi-step reasoning over infrastructure security context |
-| Output | Grounded remediation decisions with confidence scores |
-
----
-
-## Production Direction
-
-The first production-grade capability is intentionally narrow: public SSH ingress remediation for AWS security groups.
-
-InfraGuard should open an automatic remediation PR only when:
-
-- public SSH ingress is detected;
-- Terraform ownership is proven;
-- an approved non-public replacement source is provided;
-- validation passes.
-
-If ownership or policy is uncertain, InfraGuard must return `manual_review` instead of pretending the change is safe.
-
-See [docs/architecture.md](docs/architecture.md) and [docs/remediation-contracts.md](docs/remediation-contracts.md).
-
-## Security Architecture
-
-InfraGuard is built on zero-trust principles with no static credentials in the runtime.
-
-| Control | Implementation |
-|---------|---------------|
-| Authentication | API key via X-API-Key header |
-| Rate limiting | 10/min analyze, 5/min remediate |
-| Input validation | Pydantic validators, length limits |
-| Confidence gate | Must be evidence-based before production use |
-| GitOps compliance | Zero direct infrastructure changes |
-| Kubernetes | Non-root, read-only filesystem, NetworkPolicy |
-| Secrets | Kubernetes Secrets + Azure Workload Identity OIDC |
-| Credentials | Target design is short-lived identity; current implementation still needs GitHub App/OIDC hardening |
-
-See [SECURITY.md](SECURITY.md) for full threat model.
-
----
-
-## GitOps Compliance
-
-**The agent never applies changes directly to infrastructure.**
-
-Every remediation creates a Pull Request containing:
-- Full audit trail with timestamp and model version
-- Terraform artifact with compliance header
-- Root cause and blast radius analysis
-- Confidence score and reasoning chain
-- Pre-merge checklist for human review
-- GitOps compliance statement
-
-Human approval is the only path to production.
-
----
-
-## API Reference
-
-| Endpoint | Method | Auth | Rate Limit | Description |
-|----------|--------|------|------------|-------------|
-| `/` | GET | ✗ | — | Agent status |
-| `/health` | GET | ✗ | — | Health check |
-| `/docs` | GET | ✗ | — | Interactive API explorer |
-| `/analyze` | POST | ✓ | 10/min | Analyze single alert |
-| `/remediate` | POST | ✓ | 5/min | Analyze + create GitHub PR + Teams notification |
-| `/analyze/bulk` | POST | ✓ | 2/min | Process all mock alerts |
-
----
-
-## Supported Resources
-
-| Resource | Threat Detected | Terraform Fix |
-|----------|----------------|---------------|
-| `aws_security_group` | Unrestricted SSH/RDP | Ingress restriction to internal CIDR |
-| `aws_s3_bucket` | Public read/write access | S3 public access block |
-| `aws_iam_role` | Wildcard permissions | Least-privilege policy |
-| `aws_rds_instance` | Publicly accessible DB | Network isolation |
-
----
-
-## Kubernetes Deployment
+## Verification
 
 ```bash
-# Deploy to AKS with Workload Identity (no static credentials)
-kubectl apply -f k8s/namespace.yaml
-kubectl apply -f k8s/serviceaccount.yaml
-kubectl apply -f k8s/deployment.yaml
-kubectl apply -f k8s/networkpolicy.yaml
+python -m ruff check api infraguard tests
+python -m pytest -q
+git diff --check
 ```
 
----
+CI repeats lint, tests, Terraform fixture formatting, and a container build. HCL parsing is not a
+substitute for `terraform validate` or `terraform plan`; those contextual checks remain a release
+gate. HashiCorp documents that `terraform validate` checks syntax and internal consistency, while
+`terraform plan` includes the current configuration and state context:
+[Terraform validate](https://developer.hashicorp.com/terraform/cli/commands/validate).
 
-## Quick Start (Local)
+## Repository map
 
-```bash
-git clone https://github.com/EdwinJdevops/infraguard-agent
-cd infraguard-agent
-python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-# Add your Azure AI Foundry and GitHub credentials
-uvicorn api.main:app --reload --port 8000
-# Visit http://localhost:8000/docs
-```
+- `api/`: authenticated, rate-limited, read-only planning API.
+- `infraguard/`: deterministic ownership, policy, patching, validation, and evidence core.
+- `tests/`: unit and component tests plus Terraform fixtures.
+- `k8s/`: hardened single-replica planning deployment contract.
+- `docs/`: architecture, contracts, operations, threat model, and release gates.
+- The unsafe hackathon publisher/model prototype has been removed from the shipping tree. It
+  remains available in Git history for archaeology.
 
----
+Start with the [architecture](docs/architecture.md), [security model](SECURITY.md), and
+[production-readiness verdict](docs/production-readiness.md).
 
-## Example Output
+## Product direction
 
-**Input:** Security group with unrestricted SSH access
+The preferred end state is to remove inbound SSH entirely where AWS Systems Manager Session
+Manager is viable. AWS documents that Session Manager can provide instance access without opening
+inbound ports, maintaining bastion hosts, or managing SSH keys:
+[AWS Session Manager](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager.html).
+The current engine only narrows a CIDR and does not prove Session Manager readiness.
 
-**InfraGuard Analysis:**
-```json
-{
-  "alert_id": "alert-001",
-  "root_cause": "Security group ingress rule uses 0.0.0.0/0 CIDR allowing unrestricted internet access to SSH port 22, violating least-privilege network access principle",
-  "blast_radius": "All EC2 instances attached to this security group in us-east-1 are exposed to SSH brute force and unauthorized remote access from the entire internet",
-  "terraform_fix": "resource aws_security_group_rule restrict_ssh { type = ingress, cidr_blocks = [10.0.0.0/8] }",
-  "confidence_score": 92,
-  "pr_title": "fix: remediate aws_security_group misconfiguration [alert-001]",
-  "status": "approved"
-}
-```
+## License
 
----
-
-## Built By
-
-**Edwin Jonathan** — Cloud & DevOps Engineer  
-ALX Africa Cloud DevOps Engineering Programme | AZ-900 Certified  
-[GitHub](https://github.com/EdwinJdevops) | [LinkedIn](https://linkedin.com/in/edwinjonathan)
-
-> *"The future of cloud security is not more dashboards. It is agents that think and act."*
-
----
-
-*Microsoft AI Skill Fest — Agents League Hackathon 2026*
-*InfraGuard Agent v1.0.0 | Phi-4-reasoning | Azure AI Foundry | Foundry IQ*
+MIT. See [`LICENSE`](LICENSE).

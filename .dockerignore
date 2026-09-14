@@ -10,7 +10,5 @@ __pycache__
 .env.*
 docs
 k8s
-static
 tests
 requirements-dev.txt
-requirements-legacy.txt

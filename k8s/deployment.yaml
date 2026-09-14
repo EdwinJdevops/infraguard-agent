@@ -31,6 +31,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: infraguard-agent
+        # Release gate: replace this tag with a scanned and signed image digest.
         image: ghcr.io/edwinjdevops/infraguard-agent:0.2.0
         imagePullPolicy: IfNotPresent
         ports:

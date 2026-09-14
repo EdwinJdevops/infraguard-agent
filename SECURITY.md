@@ -1,79 +1,80 @@
-# InfraGuard Security Architecture
+# Security policy and threat model
 
-## Zero Static Credentials Design
+## Security posture
 
-InfraGuard is built on the principle that **no static credentials should ever exist**
-in the runtime environment. This is enforced at the architecture level, not policy level.
+InfraGuard is an alpha planning service, not an autonomous production remediator. The current
+runtime reads a trusted Terraform checkout and optional state file, then returns an in-memory
+proposal. It has no GitHub client, cloud credentials, Terraform CLI execution, or apply path.
 
-## Authentication Stack
+No claim in this repository should imply that credentials, identity federation, signed artifacts,
+or post-deployment verification exist before the corresponding code and deployment evidence exist.
 
-### Azure AI Foundry Access
-- Method: Azure Workload Identity (OIDC)
-- The AKS pod ServiceAccount is federated with Azure AD
-- Short-lived tokens are automatically injected by the Azure AD webhook
-- Token lifetime: 1 hour, auto-rotated
-- No API keys stored anywhere
+## Reporting a vulnerability
 
-### GitHub Access
-- Method: GitHub App installation token (short-lived)
-- Scoped to single repository: EdwinJdevops/infraguard-agent
-- Permissions: contents:write, pull-requests:write only
-- Token expires after 1 hour
+Do not put exploit details, credentials, Terraform state, or customer identifiers in a public
+issue. Use GitHub's private vulnerability reporting for this repository if it is enabled. If it is
+not available, open a minimal public issue asking the maintainer for a private reporting channel,
+without disclosing the vulnerability.
 
-### API Authentication
-- Method: API key via X-API-Key header
-- Stored in Kubernetes Secret (not ConfigMap)
-- Rate limited: 10 req/min analyze, 5 req/min remediate
+No response-time SLA is currently offered. Establishing a staffed security contact and SLA is a
+production release gate.
 
-## Kubernetes Security Controls
+## Supported versions
 
-| Control | Implementation |
-|---------|---------------|
-| Non-root container | runAsUser: 1000 |
-| Read-only filesystem | readOnlyRootFilesystem: true |
-| No privilege escalation | allowPrivilegeEscalation: false |
-| Dropped capabilities | capabilities.drop: ALL |
-| Network isolation | NetworkPolicy: deny-by-default |
-| RBAC | Least-privilege Role/RoleBinding |
-| Secret management | Kubernetes Secrets only |
+Only the latest commit on `main` is maintained. There is no stable release or security backport
+policy yet.
 
-## Threat Model
+## Assets and trust boundaries
 
-| Threat | Mitigation |
-|--------|-----------|
-| Credential theft | No static credentials exist |
-| Container escape | Non-root + read-only filesystem |
-| Lateral movement | NetworkPolicy isolation |
-| API abuse | Rate limiting + API key auth |
-| Prompt injection | Input validation + length limits |
-| Hallucinated Terraform | Confidence score threshold (>80 only) |
+| Asset | Sensitivity | Current boundary |
+|---|---|---|
+| Terraform source | Integrity-critical; may reveal architecture | Operator-provided read-only checkout |
+| Terraform state | Confidential; may contain secrets | Optional local read-only file; never returned by design |
+| API key | Secret | Process environment or Kubernetes Secret |
+| Finding payload | Integrity-critical; contains account/resource IDs | Authenticated caller, but provenance is not verified |
+| Generated diff/evidence | Integrity and confidentiality sensitive | Returned to authenticated caller; no durable store |
+| Replacement allowlist | Security policy | Deployment configuration, not caller-controlled |
 
-## Least Privilege IAM
+## Threat model
 
-InfraGuard only needs:
-- Azure: Cognitive Services User (read model, call inference)
-- GitHub: contents:write on one repo, pull-requests:write on one repo
-- Kubernetes: get/list configmaps and secrets in own namespace only
+| Threat | Current mitigation | Residual risk / required production control |
+|---|---|---|
+| Spoofed or stale finding | Strict schema; planner never mutates or publishes | Account, region, and live AWS rule are not verified. Require signed provider events or read-only cloud verification with freshness checks. |
+| Tampered source checkout | Deployment contract mounts source read-only; source symlinks and root escapes fail closed | The checkout's repository and commit are not authenticated. Use an ephemeral clone from an allowlisted repository and pin the exact base commit SHA. |
+| Tampered or stale state | State is read-only; malformed JSON fails closed | State authenticity, lineage, serial, and freshness are not verified. Obtain state through a trusted backend workflow and bind it to the checkout/workspace. |
+| Ambiguous ownership | Multiple matches raise an error; unknown ownership is manual review | Modules, aliases, `for_each`, `count`, dynamic blocks, and expression evaluation are not supported. A full Terraform graph/plan is required before broader automation. |
+| Patch targets wrong text | Patch is scoped to one resource and one CIDR attribute; semantic validation checks the target | Regex source editing supports only static forms. Move to an AST/token-preserving editor or Terraform-native transformation before expanding syntax coverage. |
+| HCL parses but plan is unsafe | HCL is parsed before and after; only the expected source line may change | Provider schema, dependencies, lifecycle, and plan output are not evaluated. Run `init -backend=false`, `validate`, and a policy-checked `plan` in an isolated worker. |
+| TOCTOU between analysis and publication | No publisher exists, so current service cannot publish stale output | Future publisher must compare repository/base SHA, file digest, finding freshness, and policy version immediately before commit and PR creation. |
+| Duplicate/concurrent findings | None beyond per-process request rate limiting | Require an idempotency key derived from tenant/repository/finding/rule/base SHA and a durable lock/state machine. |
+| Publisher token theft or overreach | No publisher credential exists in the runtime | Use a dedicated GitHub App installation token, scoped to selected repositories and minimum permissions, in an isolated short-lived publisher. GitHub states installation tokens expire after one hour and can be permission/repository scoped: [installation tokens](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app). |
+| Prompt injection / model-generated mutation | No LLM is used in the production planning path | Keep models out of authorization, ownership, policy, patch generation, and validation. Model output may explain evidence but must be treated as untrusted text. |
+| State or path disclosure | API converts file paths to paths relative to the configured root and sanitizes evidence errors | Internal logs can contain parser details; logging policy, redaction tests, retention, and tenant isolation are not complete. |
+| API credential guessing/replay | 32-character minimum, constant-time comparison, per-process rate limit | Static shared API keys are insufficient for multi-tenant production. Terminate TLS and use workload identity/OIDC, audience-scoped tokens, authorization, rotation, and gateway limits. |
+| Network lateral movement | Kubernetes manifest denies egress and limits ingress; pod has no API token | NetworkPolicy enforcement depends on the cluster CNI and ingress namespace labels. Validate in the target cluster. |
+| Container compromise | Non-root UID/GID 10001, read-only root filesystem, dropped capabilities, RuntimeDefault seccomp | Image is not yet published, digest-pinned, scanned, signed, or accompanied by provenance/SBOM. |
+| Audit evidence tampering | Deterministic evidence is returned with each eligible plan | Evidence is not signed or durably retained. Store append-only records with input/output hashes, policy version, code version, actor, timestamps, and publication/verification transitions. |
 
-## Fault Tolerance & Reliability
+## Current non-negotiable controls
 
-### Agent Failure Modes
+- No direct AWS mutation and no `terraform apply`.
+- No PR publication from the API process.
+- No patch unless Terraform ownership is exactly one supported resource.
+- No caller-selected replacement outside the deployment-owned allowlist.
+- No globally routable replacement source; only RFC1918 IPv4 and IPv6 ULA.
+- No LLM output in any mutation or authorization decision.
+- No Terraform state in responses, commits, logs, or test fixtures containing real data.
+- Any parse ambiguity, malformed evidence, unsupported form, or failed validation stops automation.
 
-| Failure | Behavior |
-|---------|----------|
-| Azure AI Foundry timeout | Falls back to grounded knowledge base — never fails silently |
-| GitHub API failure | Returns error with alert analysis preserved — no data loss |
-| Confidence below 70% | Hard rejection — no PR created, no infrastructure touched |
-| Invalid Terraform generated | Confidence gate blocks it before GitHub API is called |
-| Render cold start | /health endpoint returns 503 until ready — client retries |
+## Deployment requirements
 
-### What Never Happens
+Use TLS at the ingress or API gateway. Keep one replica until rate limiting and idempotency use a
+shared durable store. Use the supplied pod security settings and verify them against the Kubernetes
+Restricted Pod Security Standard:
+[Pod Security Standards](https://kubernetes.io/docs/concepts/security/pod-security-standards/).
+Protect `main` with required reviews and status checks; GitHub rulesets can require reviews, signed
+commits, and block force pushes:
+[About rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets).
 
-- Agent never applies changes directly to infrastructure
-- Agent never commits without a confidence score above threshold
-- Agent never exposes credentials — OIDC only, no static keys
-- Agent never runs as root — UID 1000, read-only filesystem
-
-### Horizontal Scaling
-
-The FastAPI app is stateless. Multiple replicas behind a load balancer work immediately. Rate limiting uses in-memory SlowAPI — for true distributed rate limiting, Redis backend is the documented next step in k8s/deployment.yaml.
+The complete release decision is maintained in
+[`docs/production-readiness.md`](docs/production-readiness.md).
