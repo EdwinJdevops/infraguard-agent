@@ -82,8 +82,13 @@ def _load_state_resource_attributes(
     if terraform_state_path is None or not terraform_state_path.exists():
         return {}
 
-    with terraform_state_path.open("r", encoding="utf-8") as handle:
-        state = json.load(handle)
+    try:
+        with terraform_state_path.open("r", encoding="utf-8") as handle:
+            state = json.load(handle)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise OwnershipError(f"failed to parse Terraform state: {exc}") from exc
+    if not isinstance(state, dict) or not isinstance(state.get("resources", []), list):
+        raise OwnershipError("failed to parse Terraform state: invalid state structure")
 
     resource_attributes: dict[str, list[dict[str, Any]]] = {}
     for resource in state.get("resources", []):
@@ -112,7 +117,12 @@ def _standalone_rule_matches(
         and _int_value(body.get("from_port")) == finding.rule.from_port
         and _int_value(body.get("to_port")) == finding.rule.to_port
         and str(body.get("protocol", "")).lower() == finding.rule.protocol.lower()
-        and finding.rule.source in _list_value(body.get("cidr_blocks"))
+        and finding.rule.source
+        in _list_value(
+            body.get(
+                "ipv6_cidr_blocks" if finding.rule.source == "::/0" else "cidr_blocks"
+            )
+        )
         and _security_group_matches(
             body.get("security_group_id"), finding.resource_id, address, state_attributes
         )
@@ -130,7 +140,8 @@ def _vpc_ingress_rule_matches(
         and _int_value(body.get("from_port")) == finding.rule.from_port
         and _int_value(body.get("to_port")) == finding.rule.to_port
         and str(body.get("ip_protocol", "")).lower() == finding.rule.protocol.lower()
-        and body.get("cidr_ipv4") == finding.rule.source
+        and body.get("cidr_ipv6" if finding.rule.source == "::/0" else "cidr_ipv4")
+        == finding.rule.source
         and _security_group_matches(
             body.get("security_group_id"), finding.resource_id, address, state_attributes
         )

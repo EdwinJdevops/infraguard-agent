@@ -61,11 +61,20 @@ def _resource_body(parsed: dict, resource_address: str) -> dict:
 def _rule_sources(body: dict, resource_address: str) -> list[str]:
     resource_type = resource_address.split(".", 1)[0]
     if resource_type == "aws_security_group_rule":
-        value = body.get("cidr_blocks", [])
-        return [item for item in value if isinstance(item, str)] if isinstance(value, list) else []
+        values = [body.get("cidr_blocks", []), body.get("ipv6_cidr_blocks", [])]
+        return [
+            item
+            for value in values
+            if isinstance(value, list)
+            for item in value
+            if isinstance(item, str)
+        ]
     if resource_type == "aws_vpc_security_group_ingress_rule":
-        value = body.get("cidr_ipv4")
-        return [value] if isinstance(value, str) else []
+        return [
+            value
+            for value in (body.get("cidr_ipv4"), body.get("cidr_ipv6"))
+            if isinstance(value, str)
+        ]
     return []
 
 

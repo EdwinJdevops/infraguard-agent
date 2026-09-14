@@ -69,12 +69,14 @@ def _replace_public_source_in_resource(
     block = source[start:end]
 
     if resource_type == "aws_security_group_rule":
+        attribute = "ipv6_cidr_blocks" if old_source == "::/0" else "cidr_blocks"
         patched_block = _replace_attribute_source(
-            block, "cidr_blocks", old_source, new_source, list_attribute=True
+            block, attribute, old_source, new_source, list_attribute=True
         )
     elif resource_type == "aws_vpc_security_group_ingress_rule":
+        attribute = "cidr_ipv6" if old_source == "::/0" else "cidr_ipv4"
         patched_block = _replace_attribute_source(
-            block, "cidr_ipv4", old_source, new_source, list_attribute=False
+            block, attribute, old_source, new_source, list_attribute=False
         )
     else:
         raise PatchError(f"unsupported standalone resource type: {resource_type}")
@@ -113,7 +115,22 @@ def _resource_contains_public_ssh_source(
     resource_type, resource_name = resource_address.split(".", 1)
     start = _find_resource_start(source, resource_type, resource_name)
     end = _find_block_end(source, start)
-    return f'"{public_source}"' in source[start:end]
+    block = source[start:end]
+    if resource_type == "aws_security_group_rule":
+        attribute = "ipv6_cidr_blocks" if public_source == "::/0" else "cidr_blocks"
+        list_attribute = True
+    elif resource_type == "aws_vpc_security_group_ingress_rule":
+        attribute = "cidr_ipv6" if public_source == "::/0" else "cidr_ipv4"
+        list_attribute = False
+    else:
+        raise PatchError(f"unsupported standalone resource type: {resource_type}")
+
+    value_pattern = r"\[[^\]]*\]" if list_attribute else r'"[^"\n]*"'
+    match = re.search(
+        rf"(?m)^[ \t]*{re.escape(attribute)}[ \t]*=[ \t]*({value_pattern})",
+        block,
+    )
+    return match is not None and f'"{public_source}"' in match.group(1)
 
 
 def _unified_diff(file_path: str, before: str, after: str) -> str:

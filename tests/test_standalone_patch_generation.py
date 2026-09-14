@@ -3,6 +3,7 @@ from pathlib import Path
 from infraguard.models import Decision, SecurityFinding, SecurityGroupRule
 from infraguard.patches import PatchError, generate_standalone_public_ssh_patch, write_patch
 from infraguard.pipeline import plan_from_terraform
+from infraguard.validation import validate_public_ssh_patch
 
 FIXTURES = Path(__file__).parent / "fixtures" / "terraform"
 
@@ -97,7 +98,7 @@ def test_patch_changes_cidr_attribute_not_description(tmp_path: Path) -> None:
     target_file = tmp_path / "security-groups.tf"
     target_file.write_text(
         """resource "aws_security_group_rule" "ssh_public" {
-  description       = "Temporary source 0.0.0.0/0"
+  description       = "0.0.0.0/0"
   type              = "ingress"
   from_port         = 22
   to_port           = 22
@@ -116,8 +117,50 @@ def test_patch_changes_cidr_attribute_not_description(tmp_path: Path) -> None:
 
     patch = generate_standalone_public_ssh_patch(decision)
 
-    assert 'description       = "Temporary source 0.0.0.0/0"' in patch.after
+    assert 'description       = "0.0.0.0/0"' in patch.after
     assert 'cidr_blocks       = ["10.20.30.40/32"]' in patch.after
+
+
+def test_generates_and_validates_ipv6_vpc_ingress_patch(tmp_path: Path) -> None:
+    target_file = tmp_path / "security-groups.tf"
+    target_file.write_text(
+        '''resource "aws_vpc_security_group_ingress_rule" "ssh_public" {
+  security_group_id = "sg-1234567890abcdef0"
+  from_port         = 22
+  to_port           = 22
+  ip_protocol       = "tcp"
+  cidr_ipv6         = "::/0"
+}
+''',
+        encoding="utf-8",
+    )
+    finding = public_ssh_finding()
+    ipv6_finding = SecurityFinding(
+        alert_id=finding.alert_id,
+        provider=finding.provider,
+        account_id=finding.account_id,
+        region=finding.region,
+        resource_type=finding.resource_type,
+        resource_id=finding.resource_id,
+        rule=SecurityGroupRule(
+            direction="ingress",
+            protocol="tcp",
+            from_port=22,
+            to_port=22,
+            source="::/0",
+        ),
+    )
+    decision = plan_from_terraform(
+        finding=ipv6_finding,
+        terraform_root=tmp_path,
+        replacement_source="fd00:1234::/64",
+    )
+
+    patch = generate_standalone_public_ssh_patch(decision)
+
+    assert 'cidr_ipv6         = "::/0"' in patch.before
+    assert 'cidr_ipv6         = "fd00:1234::/64"' in patch.after
+    assert validate_public_ssh_patch(patch).passed is True
 
 
 def test_refuses_patch_when_decision_requires_manual_review() -> None:

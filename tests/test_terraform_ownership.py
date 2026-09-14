@@ -142,3 +142,59 @@ def test_malformed_hcl_is_not_silently_ignored(tmp_path: Path) -> None:
 
     with pytest.raises(OwnershipError, match="failed to parse Terraform file"):
         classify_security_group_ownership(public_ssh_finding(), tmp_path)
+
+
+def test_malformed_state_is_not_silently_ignored(tmp_path: Path) -> None:
+    (tmp_path / "main.tf").write_text("", encoding="utf-8")
+    state = tmp_path / "terraform.tfstate"
+    state.write_text("{not-json", encoding="utf-8")
+
+    with pytest.raises(OwnershipError, match="failed to parse Terraform state"):
+        classify_security_group_ownership(public_ssh_finding(), tmp_path, state)
+
+
+@pytest.mark.parametrize(
+    ("resource_type", "source_attribute"),
+    [
+        ("aws_security_group_rule", 'ipv6_cidr_blocks = ["::/0"]'),
+        ("aws_vpc_security_group_ingress_rule", 'cidr_ipv6 = "::/0"'),
+    ],
+)
+def test_classifies_ipv6_standalone_rule(
+    tmp_path: Path, resource_type: str, source_attribute: str
+) -> None:
+    protocol_attribute = "protocol" if resource_type == "aws_security_group_rule" else "ip_protocol"
+    type_attribute = 'type = "ingress"' if resource_type == "aws_security_group_rule" else ""
+    (tmp_path / "main.tf").write_text(
+        f'''resource "{resource_type}" "ssh_public" {{
+  {type_attribute}
+  from_port         = 22
+  to_port           = 22
+  {protocol_attribute} = "tcp"
+  {source_attribute}
+  security_group_id = "sg-1234567890abcdef0"
+}}
+''',
+        encoding="utf-8",
+    )
+    finding = public_ssh_finding()
+    ipv6_finding = SecurityFinding(
+        alert_id=finding.alert_id,
+        provider=finding.provider,
+        account_id=finding.account_id,
+        region=finding.region,
+        resource_type=finding.resource_type,
+        resource_id=finding.resource_id,
+        rule=SecurityGroupRule(
+            direction="ingress",
+            protocol="tcp",
+            from_port=22,
+            to_port=22,
+            source="::/0",
+        ),
+    )
+
+    ref = classify_security_group_ownership(ipv6_finding, tmp_path)
+
+    assert ref is not None
+    assert ref.address == f"{resource_type}.ssh_public"
