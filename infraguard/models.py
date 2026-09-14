@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 
 
-class Ownership(str, Enum):
+class Ownership(StrEnum):
     TERRAFORM_STANDALONE_RULE = "terraform_standalone_rule"
     TERRAFORM_INLINE_RULE = "terraform_inline_rule"
     UNMANAGED_REMOTE_RULE = "unmanaged_remote_rule"
     UNKNOWN = "unknown"
 
 
-class Decision(str, Enum):
+class Decision(StrEnum):
     AUTO_PR = "auto_pr"
     MANUAL_REVIEW = "manual_review"
     REJECT = "reject"
@@ -73,6 +73,8 @@ class TerraformPatch:
     before: str
     after: str
     resource_address: str
+    source_before: str
+    replacement_source: str
     summary: str
     diff: str
 
@@ -98,3 +100,14 @@ class RemediationRun:
     validation: PatchValidation | None
     evidence_json: dict[str, object] | None
     pr_markdown: str | None
+
+    @property
+    def can_open_pr(self) -> bool:
+        return (
+            self.decision.decision == Decision.AUTO_PR
+            and self.patch is not None
+            and self.validation is not None
+            and self.validation.passed
+            and self.evidence_json is not None
+            and self.pr_markdown is not None
+        )

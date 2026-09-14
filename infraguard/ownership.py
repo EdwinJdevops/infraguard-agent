@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
 import json
+import re
+from pathlib import Path
 from typing import Any
 
 import hcl2
@@ -9,41 +10,62 @@ import hcl2
 from infraguard.models import Ownership, SecurityFinding, TerraformResourceRef
 
 
+class OwnershipError(ValueError):
+    """Raised when Terraform evidence cannot establish one unambiguous owner."""
+
+
 def classify_security_group_ownership(
     finding: SecurityFinding,
     terraform_root: Path,
     terraform_state_path: Path | None = None,
 ) -> TerraformResourceRef | None:
-    state_resource_ids = _load_state_resource_ids(terraform_state_path)
+    state_attributes = _load_state_resource_attributes(terraform_state_path)
+    matches: list[TerraformResourceRef] = []
     for file_path in sorted(terraform_root.rglob("*.tf")):
-        parsed = _load_hcl(file_path)
+        try:
+            parsed = _load_hcl(file_path)
+        except Exception as exc:
+            raise OwnershipError(f"failed to parse Terraform file {file_path}: {exc}") from exc
         for resource in parsed.get("resource", []):
             for resource_type, resources in resource.items():
                 for name, body in resources.items():
                     address = f"{resource_type}.{name}"
-                    if resource_type == "aws_security_group_rule" and _standalone_rule_matches(body, finding):
-                        return TerraformResourceRef(
+                    if resource_type == "aws_security_group_rule" and _standalone_rule_matches(
+                        body, finding, address, state_attributes
+                    ):
+                        matches.append(TerraformResourceRef(
                             address=address,
                             ownership=Ownership.TERRAFORM_STANDALONE_RULE,
                             file_path=str(file_path),
-                        )
-                    if resource_type == "aws_vpc_security_group_ingress_rule" and _vpc_ingress_rule_matches(body, finding):
-                        return TerraformResourceRef(
+                        ))
+                    if (
+                        resource_type == "aws_vpc_security_group_ingress_rule"
+                        and _vpc_ingress_rule_matches(body, finding, address, state_attributes)
+                    ):
+                        matches.append(TerraformResourceRef(
                             address=address,
                             ownership=Ownership.TERRAFORM_STANDALONE_RULE,
                             file_path=str(file_path),
-                        )
+                        ))
                     if (
                         resource_type == "aws_security_group"
                         and _inline_rule_matches(body, finding)
-                        and state_resource_ids.get(address) == finding.resource_id
+                        and _state_has_attribute(
+                            state_attributes,
+                            address,
+                            "id",
+                            finding.resource_id,
+                        )
                     ):
-                        return TerraformResourceRef(
+                        matches.append(TerraformResourceRef(
                             address=address,
                             ownership=Ownership.TERRAFORM_INLINE_RULE,
                             file_path=str(file_path),
-                        )
-    return None
+                        ))
+    if len(matches) > 1:
+        addresses = ", ".join(match.address for match in matches)
+        raise OwnershipError(f"multiple Terraform resources match finding: {addresses}")
+    return matches[0] if matches else None
 
 
 def _load_hcl(file_path: Path) -> dict[str, Any]:
@@ -54,48 +76,64 @@ def _load_hcl(file_path: Path) -> dict[str, Any]:
     return loaded
 
 
-def _load_state_resource_ids(terraform_state_path: Path | None) -> dict[str, str]:
+def _load_state_resource_attributes(
+    terraform_state_path: Path | None,
+) -> dict[str, list[dict[str, Any]]]:
     if terraform_state_path is None or not terraform_state_path.exists():
         return {}
 
     with terraform_state_path.open("r", encoding="utf-8") as handle:
         state = json.load(handle)
 
-    resource_ids: dict[str, str] = {}
+    resource_attributes: dict[str, list[dict[str, Any]]] = {}
     for resource in state.get("resources", []):
         mode = resource.get("mode")
         resource_type = resource.get("type")
         name = resource.get("name")
         if mode != "managed" or not resource_type or not name:
             continue
-        address = f"{resource_type}.{name}"
+        module = resource.get("module")
+        address = f"{module}.{resource_type}.{name}" if module else f"{resource_type}.{name}"
         for instance in resource.get("instances", []):
             attributes = instance.get("attributes", {})
-            resource_id = attributes.get("id")
-            if isinstance(resource_id, str):
-                resource_ids[address] = resource_id
-    return resource_ids
+            if isinstance(attributes, dict):
+                resource_attributes.setdefault(address, []).append(attributes)
+    return resource_attributes
 
 
-def _standalone_rule_matches(body: dict[str, Any], finding: SecurityFinding) -> bool:
+def _standalone_rule_matches(
+    body: dict[str, Any],
+    finding: SecurityFinding,
+    address: str,
+    state_attributes: dict[str, list[dict[str, Any]]],
+) -> bool:
     return (
         body.get("type") == finding.rule.direction
         and _int_value(body.get("from_port")) == finding.rule.from_port
         and _int_value(body.get("to_port")) == finding.rule.to_port
         and str(body.get("protocol", "")).lower() == finding.rule.protocol.lower()
         and finding.rule.source in _list_value(body.get("cidr_blocks"))
-        and _security_group_matches(body.get("security_group_id"), finding.resource_id)
+        and _security_group_matches(
+            body.get("security_group_id"), finding.resource_id, address, state_attributes
+        )
     )
 
 
-def _vpc_ingress_rule_matches(body: dict[str, Any], finding: SecurityFinding) -> bool:
+def _vpc_ingress_rule_matches(
+    body: dict[str, Any],
+    finding: SecurityFinding,
+    address: str,
+    state_attributes: dict[str, list[dict[str, Any]]],
+) -> bool:
     return (
         finding.rule.direction == "ingress"
         and _int_value(body.get("from_port")) == finding.rule.from_port
         and _int_value(body.get("to_port")) == finding.rule.to_port
         and str(body.get("ip_protocol", "")).lower() == finding.rule.protocol.lower()
         and body.get("cidr_ipv4") == finding.rule.source
-        and _security_group_matches(body.get("security_group_id"), finding.resource_id)
+        and _security_group_matches(
+            body.get("security_group_id"), finding.resource_id, address, state_attributes
+        )
     )
 
 
@@ -113,12 +151,30 @@ def _inline_rule_matches(body: dict[str, Any], finding: SecurityFinding) -> bool
     return False
 
 
-def _security_group_matches(value: Any, resource_id: str) -> bool:
+def _security_group_matches(
+    value: Any,
+    resource_id: str,
+    rule_address: str,
+    state_attributes: dict[str, list[dict[str, Any]]],
+) -> bool:
     if value == resource_id:
         return True
-    if isinstance(value, str) and value.startswith("${") and value.endswith(".id}"):
+    if _state_has_attribute(state_attributes, rule_address, "security_group_id", resource_id):
         return True
+    if isinstance(value, str):
+        match = re.fullmatch(r"\$\{(aws_security_group\.[^.]+)\.id}", value)
+        if match and _state_has_attribute(state_attributes, match.group(1), "id", resource_id):
+            return True
     return False
+
+
+def _state_has_attribute(
+    state_attributes: dict[str, list[dict[str, Any]]],
+    address: str,
+    attribute: str,
+    expected: str,
+) -> bool:
+    return any(values.get(attribute) == expected for values in state_attributes.get(address, []))
 
 
 def _int_value(value: Any) -> int | None:

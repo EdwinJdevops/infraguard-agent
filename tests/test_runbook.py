@@ -3,7 +3,6 @@ from pathlib import Path
 from infraguard.models import Decision, SecurityFinding, SecurityGroupRule
 from infraguard.runbook import run_public_ssh_remediation
 
-
 FIXTURES = Path(__file__).parent / "fixtures" / "terraform"
 
 
@@ -35,13 +34,14 @@ def test_runbook_produces_patch_validation_and_evidence(tmp_path: Path) -> None:
     run = run_public_ssh_remediation(
         finding=public_ssh_finding(),
         terraform_root=target_dir,
-        replacement_source="203.0.113.10/32",
+        replacement_source="10.20.30.40/32",
     )
 
     assert run.decision.decision == Decision.AUTO_PR
     assert run.patch is not None
     assert run.validation is not None
     assert run.validation.passed is True
+    assert run.can_open_pr is True
     assert run.evidence_json is not None
     assert run.evidence_json["decision"] == "auto_pr"
     assert run.pr_markdown is not None
@@ -52,7 +52,7 @@ def test_runbook_returns_manual_review_without_patch_when_ownership_unknown() ->
     run = run_public_ssh_remediation(
         finding=public_ssh_finding(),
         terraform_root=FIXTURES / "no_public_ssh",
-        replacement_source="203.0.113.10/32",
+        replacement_source="10.20.30.40/32",
     )
 
     assert run.decision.decision == Decision.MANUAL_REVIEW
@@ -60,4 +60,4 @@ def test_runbook_returns_manual_review_without_patch_when_ownership_unknown() ->
     assert run.validation is None
     assert run.evidence_json is None
     assert run.pr_markdown is None
-
+    assert run.can_open_pr is False

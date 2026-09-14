@@ -9,34 +9,35 @@ from infraguard.models import PatchValidation, TerraformPatch
 
 def validate_public_ssh_patch(patch: TerraformPatch) -> PatchValidation:
     checks = {
-        "before_contains_public_ssh": False,
+        "before_target_contains_public_ssh": False,
         "after_parses_as_hcl": False,
         "after_removes_target_public_ssh": False,
         "after_contains_replacement_source": False,
+        "target_rule_remains_ssh_ingress": False,
+        "only_expected_source_changed": False,
         "diff_is_present": bool(patch.diff.strip()),
     }
     errors: list[str] = []
 
-    if '"0.0.0.0/0"' in patch.before or '"::/0"' in patch.before:
-        checks["before_contains_public_ssh"] = True
-    else:
-        errors.append("before content did not contain a public SSH source")
-
     try:
-        parsed = hcl2.load(StringIO(patch.after))
-        checks["after_parses_as_hcl"] = isinstance(parsed, dict)
+        before_parsed = hcl2.load(StringIO(patch.before))
+        after_parsed = hcl2.load(StringIO(patch.after))
+        checks["after_parses_as_hcl"] = isinstance(after_parsed, dict)
+        before_rule = _resource_body(before_parsed, patch.resource_address)
+        after_rule = _resource_body(after_parsed, patch.resource_address)
+        before_sources = _rule_sources(before_rule, patch.resource_address)
+        after_sources = _rule_sources(after_rule, patch.resource_address)
+        checks["before_target_contains_public_ssh"] = patch.source_before in before_sources
+        checks["after_removes_target_public_ssh"] = not ({"0.0.0.0/0", "::/0"} & set(after_sources))
+        checks["after_contains_replacement_source"] = patch.replacement_source in after_sources
+        checks["target_rule_remains_ssh_ingress"] = _is_ssh_ingress(
+            after_rule,
+            patch.resource_address,
+        )
     except Exception as exc:
         errors.append(f"patched HCL does not parse: {exc}")
 
-    if '"0.0.0.0/0"' not in patch.after and '"::/0"' not in patch.after:
-        checks["after_removes_target_public_ssh"] = True
-    else:
-        errors.append("patched content still contains a public SSH source")
-
-    if _replacement_sources_from_diff(patch):
-        checks["after_contains_replacement_source"] = True
-    else:
-        errors.append("patched content does not include the replacement source from the diff")
+    checks["only_expected_source_changed"] = _only_expected_source_changed(patch)
 
     if not checks["diff_is_present"]:
         errors.append("patch diff is empty")
@@ -48,14 +49,58 @@ def validate_public_ssh_patch(patch: TerraformPatch) -> PatchValidation:
     )
 
 
-def _replacement_sources_from_diff(patch: TerraformPatch) -> list[str]:
-    added_lines = [line for line in patch.diff.splitlines() if line.startswith("+") and not line.startswith("+++")]
-    replacement_sources: list[str] = []
-    for line in added_lines:
-        if '"' not in line:
-            continue
-        parts = line.split('"')
-        for index, part in enumerate(parts):
-            if index % 2 == 1 and "/" in part and part not in {"0.0.0.0/0", "::/0"}:
-                replacement_sources.append(part)
-    return replacement_sources
+def _resource_body(parsed: dict, resource_address: str) -> dict:
+    resource_type, resource_name = resource_address.split(".", 1)
+    for group in parsed.get("resource", []):
+        body = group.get(resource_type, {}).get(resource_name)
+        if isinstance(body, dict):
+            return body
+    raise ValueError(f"resource not found after parsing: {resource_address}")
+
+
+def _rule_sources(body: dict, resource_address: str) -> list[str]:
+    resource_type = resource_address.split(".", 1)[0]
+    if resource_type == "aws_security_group_rule":
+        value = body.get("cidr_blocks", [])
+        return [item for item in value if isinstance(item, str)] if isinstance(value, list) else []
+    if resource_type == "aws_vpc_security_group_ingress_rule":
+        value = body.get("cidr_ipv4")
+        return [value] if isinstance(value, str) else []
+    return []
+
+
+def _is_ssh_ingress(body: dict, resource_address: str) -> bool:
+    resource_type = resource_address.split(".", 1)[0]
+    if resource_type == "aws_security_group_rule":
+        direction_ok = body.get("type") == "ingress"
+        protocol = body.get("protocol")
+    else:
+        direction_ok = True
+        protocol = body.get("ip_protocol")
+    return (
+        direction_ok
+        and str(protocol).lower() == "tcp"
+        and isinstance(body.get("from_port"), int)
+        and isinstance(body.get("to_port"), int)
+        and body["from_port"] <= 22 <= body["to_port"]
+    )
+
+
+def _only_expected_source_changed(patch: TerraformPatch) -> bool:
+    removed = [
+        line[1:]
+        for line in patch.diff.splitlines()
+        if line.startswith("-") and not line.startswith("---")
+    ]
+    added = [
+        line[1:]
+        for line in patch.diff.splitlines()
+        if line.startswith("+") and not line.startswith("+++")
+    ]
+    if len(removed) != 1 or len(added) != 1:
+        return False
+    return (
+        patch.source_before in removed[0]
+        and patch.replacement_source in added[0]
+        and removed[0].replace(patch.source_before, patch.replacement_source) == added[0]
+    )

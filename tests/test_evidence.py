@@ -6,7 +6,6 @@ from infraguard.patches import generate_standalone_public_ssh_patch
 from infraguard.pipeline import plan_from_terraform
 from infraguard.validation import validate_public_ssh_patch
 
-
 FIXTURES = Path(__file__).parent / "fixtures" / "terraform"
 
 
@@ -35,7 +34,7 @@ def test_builds_machine_readable_evidence(tmp_path: Path) -> None:
     target_file = target_dir / "security-groups.tf"
     target_file.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
 
-    decision = plan_from_terraform(public_ssh_finding(), target_dir, "203.0.113.10/32")
+    decision = plan_from_terraform(public_ssh_finding(), target_dir, "10.20.30.40/32")
     patch = generate_standalone_public_ssh_patch(decision)
     validation = validate_public_ssh_patch(patch)
     evidence = build_evidence_json(decision, patch, validation)
@@ -43,7 +42,7 @@ def test_builds_machine_readable_evidence(tmp_path: Path) -> None:
     assert evidence["alert_id"] == "alert-001"
     assert evidence["decision"] == "auto_pr"
     assert evidence["ownership"] == "terraform_standalone_rule"
-    assert evidence["replacement_source"] == "203.0.113.10/32"
+    assert evidence["replacement_source"] == "10.20.30.40/32"
     assert evidence["validation"]["passed"] is True  # type: ignore[index]
 
 
@@ -54,7 +53,7 @@ def test_builds_pr_markdown_with_diff_and_checks(tmp_path: Path) -> None:
     target_file = target_dir / "security-groups.tf"
     target_file.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
 
-    decision = plan_from_terraform(public_ssh_finding(), target_dir, "203.0.113.10/32")
+    decision = plan_from_terraform(public_ssh_finding(), target_dir, "10.20.30.40/32")
     patch = generate_standalone_public_ssh_patch(decision)
     validation = validate_public_ssh_patch(patch)
     markdown = build_pr_markdown(decision, patch, validation)
@@ -64,5 +63,5 @@ def test_builds_pr_markdown_with_diff_and_checks(tmp_path: Path) -> None:
     assert "`terraform_standalone_rule`" in markdown
     assert "- [x] `after_removes_target_public_ssh`" in markdown
     assert '-  cidr_blocks       = ["0.0.0.0/0"]' in markdown
-    assert '+  cidr_blocks       = ["203.0.113.10/32"]' in markdown
+    assert '+  cidr_blocks       = ["10.20.30.40/32"]' in markdown
 

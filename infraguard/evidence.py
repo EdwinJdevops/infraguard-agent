@@ -55,6 +55,10 @@ def build_pr_markdown(
     )
     errors = evidence["validation"]["errors"]  # type: ignore[index]
     error_section = "None" if not errors else "\n".join(f"- {error}" for error in errors)  # type: ignore[truthy-function]
+    rule = decision.finding.rule
+    offending_rule = (
+        f"{rule.direction} {rule.protocol} {rule.from_port}-{rule.to_port} from {rule.source}"
+    )
 
     return f"""## InfraGuard Remediation Evidence
 
@@ -66,7 +70,7 @@ def build_pr_markdown(
 | Account | `{evidence["account_id"]}` |
 | Region | `{evidence["region"]}` |
 | Resource | `{evidence["resource_type"]}` / `{evidence["resource_id"]}` |
-| Offending Rule | `{decision.finding.rule.direction} {decision.finding.rule.protocol} {decision.finding.rule.from_port}-{decision.finding.rule.to_port} from {decision.finding.rule.source}` |
+| Offending Rule | `{offending_rule}` |
 
 ### Decision
 
@@ -91,4 +95,3 @@ Errors: {error_section}
 ```diff
 {patch.diff}```
 """
-

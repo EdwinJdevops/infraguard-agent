@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Collection
 from pathlib import Path
 
 from infraguard.models import RemediationDecision, SecurityFinding
@@ -12,6 +13,7 @@ def plan_from_terraform(
     terraform_root: Path,
     replacement_source: str | None,
     terraform_state_path: Path | None = None,
+    allowed_replacement_sources: Collection[str] | None = None,
 ) -> RemediationDecision:
     terraform_resource = classify_security_group_ownership(
         finding=finding,
@@ -22,5 +24,5 @@ def plan_from_terraform(
         finding=finding,
         terraform_resource=terraform_resource,
         replacement_source=replacement_source,
+        allowed_replacement_sources=allowed_replacement_sources,
     )
-

@@ -3,7 +3,6 @@ from pathlib import Path
 from infraguard.models import Decision, Ownership, SecurityFinding, SecurityGroupRule
 from infraguard.pipeline import plan_from_terraform
 
-
 FIXTURES = Path(__file__).parent / "fixtures" / "terraform"
 
 
@@ -29,7 +28,7 @@ def test_pipeline_allows_auto_pr_for_proven_standalone_rule() -> None:
     decision = plan_from_terraform(
         finding=public_ssh_finding(),
         terraform_root=FIXTURES / "standalone_public_ssh",
-        replacement_source="203.0.113.10/32",
+        replacement_source="10.20.30.40/32",
     )
 
     assert decision.decision == Decision.AUTO_PR
@@ -42,7 +41,7 @@ def test_pipeline_requires_manual_review_when_ownership_is_unknown() -> None:
     decision = plan_from_terraform(
         finding=public_ssh_finding(),
         terraform_root=FIXTURES / "no_public_ssh",
-        replacement_source="203.0.113.10/32",
+        replacement_source="10.20.30.40/32",
     )
 
     assert decision.decision == Decision.MANUAL_REVIEW
@@ -55,11 +54,12 @@ def test_pipeline_proves_inline_rule_only_with_state() -> None:
         finding=public_ssh_finding(),
         terraform_root=FIXTURES / "inline_public_ssh",
         terraform_state_path=FIXTURES / "inline_public_ssh" / "terraform.tfstate",
-        replacement_source="203.0.113.10/32",
+        replacement_source="10.20.30.40/32",
     )
 
-    assert decision.decision == Decision.AUTO_PR
+    assert decision.decision == Decision.MANUAL_REVIEW
     assert decision.ownership == Ownership.TERRAFORM_INLINE_RULE
+    assert "inline rule patching is not supported" in decision.reason
     assert decision.terraform_resource is not None
     assert decision.terraform_resource.address == "aws_security_group.app"
 
@@ -72,5 +72,4 @@ def test_pipeline_rejects_public_replacement_source_even_with_ownership() -> Non
     )
 
     assert decision.decision == Decision.REJECT
-    assert "public IPv4" in decision.reason
-
+    assert "RFC1918" in decision.reason

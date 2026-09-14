@@ -34,12 +34,12 @@ def test_public_ssh_with_proven_standalone_ownership_can_open_pr() -> None:
             ownership=Ownership.TERRAFORM_STANDALONE_RULE,
             file_path="security-groups.tf",
         ),
-        replacement_source="203.0.113.10/32",
+        replacement_source="10.20.30.40/32",
     )
 
     assert decision.decision == Decision.AUTO_PR
     assert decision.can_open_pr is True
-    assert decision.replacement_source == "203.0.113.10/32"
+    assert decision.replacement_source == "10.20.30.40/32"
     assert "terraform_ownership_proven" in decision.evidence
 
 
@@ -47,7 +47,7 @@ def test_public_ssh_without_terraform_ownership_requires_manual_review() -> None
     decision = plan_public_ssh_remediation(
         finding=public_ssh_finding(),
         terraform_resource=None,
-        replacement_source="203.0.113.10/32",
+        replacement_source="10.20.30.40/32",
     )
 
     assert decision.decision == Decision.MANUAL_REVIEW
@@ -68,7 +68,53 @@ def test_public_ssh_with_public_replacement_is_rejected() -> None:
 
     assert decision.decision == Decision.REJECT
     assert decision.can_open_pr is False
-    assert "public IPv4" in decision.reason
+    assert "RFC1918" in decision.reason
+
+
+def test_globally_routable_host_cidr_is_rejected() -> None:
+    decision = plan_public_ssh_remediation(
+        finding=public_ssh_finding(),
+        terraform_resource=TerraformResourceRef(
+            address="aws_security_group_rule.ssh_public",
+            ownership=Ownership.TERRAFORM_STANDALONE_RULE,
+            file_path="security-groups.tf",
+        ),
+        replacement_source="8.8.8.8/32",
+    )
+
+    assert decision.decision == Decision.REJECT
+    assert "RFC1918" in decision.reason
+
+
+def test_ipv6_unique_local_source_is_accepted() -> None:
+    finding = public_ssh_finding()
+    ipv6_finding = SecurityFinding(
+        alert_id=finding.alert_id,
+        provider=finding.provider,
+        account_id=finding.account_id,
+        region=finding.region,
+        resource_type=finding.resource_type,
+        resource_id=finding.resource_id,
+        rule=SecurityGroupRule(
+            direction="ingress",
+            protocol="tcp",
+            from_port=22,
+            to_port=22,
+            source="::/0",
+        ),
+    )
+    decision = plan_public_ssh_remediation(
+        finding=ipv6_finding,
+        terraform_resource=TerraformResourceRef(
+            address="aws_security_group_rule.ssh_public",
+            ownership=Ownership.TERRAFORM_STANDALONE_RULE,
+            file_path="security-groups.tf",
+        ),
+        replacement_source="fd00:1234::/64",
+    )
+
+    assert decision.decision == Decision.AUTO_PR
+    assert decision.replacement_source == "fd00:1234::/64"
 
 
 def test_non_public_ssh_is_rejected() -> None:
@@ -96,9 +142,24 @@ def test_non_public_ssh_is_rejected() -> None:
             ownership=Ownership.TERRAFORM_STANDALONE_RULE,
             file_path="security-groups.tf",
         ),
-        replacement_source="203.0.113.10/32",
+        replacement_source="10.20.30.40/32",
     )
 
     assert decision.decision == Decision.REJECT
     assert decision.reason == "finding is not public ssh ingress"
 
+
+def test_replacement_source_must_match_configured_allowlist() -> None:
+    decision = plan_public_ssh_remediation(
+        finding=public_ssh_finding(),
+        terraform_resource=TerraformResourceRef(
+            address="aws_security_group_rule.ssh",
+            ownership=Ownership.TERRAFORM_STANDALONE_RULE,
+            file_path="security-groups.tf",
+        ),
+        replacement_source="10.20.30.40/32",
+        allowed_replacement_sources={"10.99.0.0/16"},
+    )
+
+    assert decision.decision == Decision.REJECT
+    assert "allowlist" in decision.reason

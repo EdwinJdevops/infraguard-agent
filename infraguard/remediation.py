@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Collection
+
 from infraguard.models import (
     Decision,
     Ownership,
@@ -14,6 +16,7 @@ def plan_public_ssh_remediation(
     finding: SecurityFinding,
     terraform_resource: TerraformResourceRef | None,
     replacement_source: str | None,
+    allowed_replacement_sources: Collection[str] | None = None,
 ) -> RemediationDecision:
     if finding.provider != "aws":
         return RemediationDecision(
@@ -63,6 +66,21 @@ def plan_public_ssh_remediation(
             terraform_resource=terraform_resource,
         )
 
+    if terraform_resource.ownership == Ownership.TERRAFORM_INLINE_RULE:
+        return RemediationDecision(
+            decision=Decision.MANUAL_REVIEW,
+            reason="terraform ownership is proven, but inline rule patching is not supported",
+            finding=finding,
+            ownership=terraform_resource.ownership,
+            replacement_source=None,
+            evidence=[
+                "public_ssh_detected",
+                "terraform_ownership_proven",
+                "inline_patch_unsupported",
+            ],
+            terraform_resource=terraform_resource,
+        )
+
     if replacement_source is None:
         return RemediationDecision(
             decision=Decision.MANUAL_REVIEW,
@@ -83,9 +101,32 @@ def plan_public_ssh_remediation(
             finding=finding,
             ownership=terraform_resource.ownership,
             replacement_source=None,
-            evidence=["public_ssh_detected", "terraform_ownership_proven", "replacement_source_rejected"],
+            evidence=[
+                "public_ssh_detected",
+                "terraform_ownership_proven",
+                "replacement_source_rejected",
+            ],
             terraform_resource=terraform_resource,
         )
+
+    if allowed_replacement_sources is not None:
+        normalized_allowed_sources = {
+            validate_replacement_source(source) for source in allowed_replacement_sources
+        }
+        if normalized_source not in normalized_allowed_sources:
+            return RemediationDecision(
+                decision=Decision.REJECT,
+                reason="replacement source is not present in the deployment allowlist",
+                finding=finding,
+                ownership=terraform_resource.ownership,
+                replacement_source=None,
+                evidence=[
+                    "public_ssh_detected",
+                    "terraform_ownership_proven",
+                    "replacement_source_not_allowlisted",
+                ],
+                terraform_resource=terraform_resource,
+            )
 
     return RemediationDecision(
         decision=Decision.AUTO_PR,
@@ -93,7 +134,10 @@ def plan_public_ssh_remediation(
         finding=finding,
         ownership=terraform_resource.ownership,
         replacement_source=normalized_source,
-        evidence=["public_ssh_detected", "terraform_ownership_proven", "replacement_source_approved"],
+        evidence=[
+            "public_ssh_detected",
+            "terraform_ownership_proven",
+            "replacement_source_approved",
+        ],
         terraform_resource=terraform_resource,
     )
-

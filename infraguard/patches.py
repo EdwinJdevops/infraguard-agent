@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
 import difflib
+import re
+from pathlib import Path
 
 from infraguard.models import Decision, Ownership, RemediationDecision, TerraformPatch
 
@@ -30,7 +31,11 @@ def generate_standalone_public_ssh_patch(decision: RemediationDecision) -> Terra
     )
     if before == after:
         raise PatchError("patch did not modify Terraform source")
-    if _resource_contains_public_ssh_source(after, decision.terraform_resource.address, decision.finding.rule.source):
+    if _resource_contains_public_ssh_source(
+        after,
+        decision.terraform_resource.address,
+        decision.finding.rule.source,
+    ):
         raise PatchError("patch output still contains public SSH source in target resource")
 
     return TerraformPatch(
@@ -38,6 +43,8 @@ def generate_standalone_public_ssh_patch(decision: RemediationDecision) -> Terra
         before=before,
         after=after,
         resource_address=decision.terraform_resource.address,
+        source_before=decision.finding.rule.source,
+        replacement_source=decision.replacement_source,
         summary=(
             f"Replace public SSH source {decision.finding.rule.source} with "
             f"{decision.replacement_source} in {decision.terraform_resource.address}"
@@ -62,11 +69,13 @@ def _replace_public_source_in_resource(
     block = source[start:end]
 
     if resource_type == "aws_security_group_rule":
-        patched_block = block.replace(f'"{old_source}"', f'"{new_source}"', 1)
+        patched_block = _replace_attribute_source(
+            block, "cidr_blocks", old_source, new_source, list_attribute=True
+        )
     elif resource_type == "aws_vpc_security_group_ingress_rule":
-        patched_block = block.replace(f'cidr_ipv4         = "{old_source}"', f'cidr_ipv4         = "{new_source}"', 1)
-        if patched_block == block:
-            patched_block = block.replace(f'cidr_ipv4 = "{old_source}"', f'cidr_ipv4 = "{new_source}"', 1)
+        patched_block = _replace_attribute_source(
+            block, "cidr_ipv4", old_source, new_source, list_attribute=False
+        )
     else:
         raise PatchError(f"unsupported standalone resource type: {resource_type}")
 
@@ -76,7 +85,31 @@ def _replace_public_source_in_resource(
     return source[:start] + patched_block + source[end:]
 
 
-def _resource_contains_public_ssh_source(source: str, resource_address: str, public_source: str) -> bool:
+def _replace_attribute_source(
+    block: str,
+    attribute: str,
+    old_source: str,
+    new_source: str,
+    *,
+    list_attribute: bool,
+) -> str:
+    value_pattern = r"\[[^\]]*\]" if list_attribute else r'"[^"\n]*"'
+    match = re.search(rf"(?m)^[ \t]*{re.escape(attribute)}[ \t]*=[ \t]*{value_pattern}", block)
+    if match is None:
+        return block
+    value = match.group(0)
+    old_literal = f'"{old_source}"'
+    if value.count(old_literal) != 1:
+        return block
+    replacement = value.replace(old_literal, f'"{new_source}"', 1)
+    return block[: match.start()] + replacement + block[match.end() :]
+
+
+def _resource_contains_public_ssh_source(
+    source: str,
+    resource_address: str,
+    public_source: str,
+) -> bool:
     resource_type, resource_name = resource_address.split(".", 1)
     start = _find_resource_start(source, resource_type, resource_name)
     end = _find_block_end(source, start)
