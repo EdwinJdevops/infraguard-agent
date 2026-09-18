@@ -30,7 +30,7 @@ public SSH source.
 | Public sources | `0.0.0.0/0` and `::/0` |
 | Standalone resources | `aws_security_group_rule` and `aws_vpc_security_group_ingress_rule` |
 | Inline `aws_security_group.ingress` | Ownership classification only; always `manual_review` |
-| Ownership proof | Exact literal security-group ID, matching rule state, or a simple root-module security-group reference proven by state |
+| Ownership proof | Automatic standalone remediation requires one root-module `.tf` declaration, one matching state instance, exact security-group/rule semantics, and the verified AWS rule ID in state; source text alone is insufficient |
 | Replacement policy | Exact deployment allowlist entry that is RFC1918 IPv4 or IPv6 ULA |
 | Patch validation | Targeted one-line source change, HCL parse, target-rule semantic checks |
 | Publication | Not implemented; API always returns `publication: not_attempted` |
@@ -60,9 +60,13 @@ export INFRAGUARD_ALLOWED_SSH_CIDRS='10.20.30.40/32,fd00:1234::/64'
 python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
 ```
 
-If the security group is referenced rather than written as a literal ID, set
-`INFRAGUARD_TERRAFORM_STATE_PATH` to a matching local state JSON file. Terraform state can contain
-secrets; mount it read-only and do not log, commit, or return it.
+Set `INFRAGUARD_TERRAFORM_STATE_PATH` to a matching local raw state JSON file for any trusted
+finding. Automatic standalone remediation is refused without state, and the state must contain
+lineage, serial, one unindexed instance at the exact root resource address, matching rule
+attributes, and the verified AWS security-group-rule ID. Terraform state can contain secrets;
+mount it read-only and do not log, commit, or return it. State authenticity, backend lineage, and
+freshness are not established by this local path contract; production intake must acquire and bind
+state through a trusted backend workflow.
 
 Example request:
 

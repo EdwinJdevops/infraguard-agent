@@ -25,6 +25,13 @@ class VerificationMethod(StrEnum):
     AWS_EC2_DESCRIBE_SECURITY_GROUP_RULES = "aws_ec2_describe_security_group_rules"
 
 
+class OwnershipProof(StrEnum):
+    TERRAFORM_STATE_RULE_ID = "terraform_state_rule_id"
+    TERRAFORM_STATE_PARENT_SECURITY_GROUP_ID = (
+        "terraform_state_parent_security_group_id"
+    )
+
+
 @dataclass(frozen=True)
 class SecurityGroupRule:
     direction: str
@@ -140,6 +147,10 @@ class TerraformResourceRef:
     address: str
     ownership: Ownership
     file_path: str | None = None
+    ownership_proof: OwnershipProof | None = None
+    state_rule_id: str | None = None
+    state_lineage: str | None = None
+    state_serial: int | None = None
 
 
 @dataclass(frozen=True)

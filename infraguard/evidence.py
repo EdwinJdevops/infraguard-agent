@@ -50,6 +50,20 @@ def build_evidence_json(
         "terraform_resource": {
             "address": terraform_resource.address if terraform_resource else None,
             "file_path": terraform_resource.file_path if terraform_resource else None,
+            "ownership_proof": (
+                terraform_resource.ownership_proof.value
+                if terraform_resource and terraform_resource.ownership_proof
+                else None
+            ),
+            "state_rule_id": (
+                terraform_resource.state_rule_id if terraform_resource else None
+            ),
+            "state_lineage": (
+                terraform_resource.state_lineage if terraform_resource else None
+            ),
+            "state_serial": (
+                terraform_resource.state_serial if terraform_resource else None
+            ),
         },
         "replacement_source": decision.replacement_source,
         "patch": {
@@ -82,6 +96,15 @@ def build_pr_markdown(
     provenance = decision.finding.provenance
     verification_method = provenance.method.value if provenance else "unverified"
     security_group_rule_id = provenance.security_group_rule_id if provenance else "unknown"
+    terraform_resource = decision.terraform_resource
+    ownership_proof = (
+        terraform_resource.ownership_proof.value
+        if terraform_resource and terraform_resource.ownership_proof
+        else "unproven"
+    )
+    state_rule_id = (
+        terraform_resource.state_rule_id if terraform_resource else "unknown"
+    )
 
     return f"""## InfraGuard Remediation Evidence
 
@@ -104,6 +127,8 @@ def build_pr_markdown(
 | Decision | `{evidence["decision"]}` |
 | Reason | {evidence["decision_reason"]} |
 | Ownership | `{evidence["ownership"]}` |
+| Ownership Proof | `{ownership_proof}` |
+| State Rule ID | `{state_rule_id}` |
 | Terraform Resource | `{patch.resource_address}` |
 | Replacement Source | `{decision.replacement_source}` |
 

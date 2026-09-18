@@ -1,4 +1,5 @@
 from pathlib import Path
+from shutil import copyfile
 
 from infraguard.models import Decision, SecurityFinding, SecurityGroupRule
 from infraguard.runbook import run_public_ssh_remediation
@@ -32,11 +33,16 @@ def test_runbook_produces_patch_validation_and_evidence(tmp_path: Path) -> None:
     target_dir.mkdir()
     target_file = target_dir / "security-groups.tf"
     target_file.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    copyfile(
+        FIXTURES / "standalone_public_ssh" / "terraform-state.json",
+        target_dir / "terraform-state.json",
+    )
 
     run = run_public_ssh_remediation(
         finding=public_ssh_finding(),
         terraform_root=target_dir,
         replacement_source="10.20.30.40/32",
+        terraform_state_path=target_dir / "terraform-state.json",
     )
 
     assert run.decision.decision == Decision.AUTO_PR

@@ -30,6 +30,7 @@ def test_pipeline_allows_auto_pr_for_proven_standalone_rule() -> None:
     decision = plan_from_terraform(
         finding=public_ssh_finding(),
         terraform_root=FIXTURES / "standalone_public_ssh",
+        terraform_state_path=FIXTURES / "standalone_public_ssh" / "terraform-state.json",
         replacement_source="10.20.30.40/32",
     )
 
@@ -70,6 +71,7 @@ def test_pipeline_rejects_public_replacement_source_even_with_ownership() -> Non
     decision = plan_from_terraform(
         finding=public_ssh_finding(),
         terraform_root=FIXTURES / "standalone_public_ssh",
+        terraform_state_path=FIXTURES / "standalone_public_ssh" / "terraform-state.json",
         replacement_source="0.0.0.0/0",
     )
 

@@ -1,5 +1,6 @@
 from dataclasses import replace
 from pathlib import Path
+from shutil import copyfile
 
 from infraguard.models import SecurityFinding, SecurityGroupRule
 from infraguard.patches import generate_standalone_public_ssh_patch
@@ -35,10 +36,15 @@ def test_validates_standalone_patch_evidence(tmp_path: Path) -> None:
     target_dir.mkdir()
     target_file = target_dir / "security-groups.tf"
     target_file.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    copyfile(
+        FIXTURES / "standalone_public_ssh" / "terraform-state.json",
+        target_dir / "terraform-state.json",
+    )
 
     decision = plan_from_terraform(
         finding=public_ssh_finding(),
         terraform_root=target_dir,
+        terraform_state_path=target_dir / "terraform-state.json",
         replacement_source="10.20.30.40/32",
     )
     patch = generate_standalone_public_ssh_patch(decision)
@@ -63,10 +69,15 @@ def test_validation_fails_when_after_still_contains_public_source(tmp_path: Path
     target_dir.mkdir()
     target_file = target_dir / "security-groups.tf"
     target_file.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    copyfile(
+        FIXTURES / "standalone_public_ssh" / "terraform-state.json",
+        target_dir / "terraform-state.json",
+    )
 
     decision = plan_from_terraform(
         finding=public_ssh_finding(),
         terraform_root=target_dir,
+        terraform_state_path=target_dir / "terraform-state.json",
         replacement_source="10.20.30.40/32",
     )
     patch = generate_standalone_public_ssh_patch(decision)
@@ -93,9 +104,14 @@ resource "aws_security_group_rule" "https_public" {
 """,
         encoding="utf-8",
     )
+    copyfile(
+        FIXTURES / "standalone_public_ssh" / "terraform-state.json",
+        tmp_path / "terraform-state.json",
+    )
     decision = plan_from_terraform(
         finding=public_ssh_finding(),
         terraform_root=tmp_path,
+        terraform_state_path=tmp_path / "terraform-state.json",
         replacement_source="10.20.30.40/32",
     )
 

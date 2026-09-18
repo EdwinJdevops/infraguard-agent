@@ -22,11 +22,11 @@ as superseded by PR #2.
 | Area | Evidence | Assessment |
 |---|---|---|
 | Deterministic decision core | Explicit `auto_pr`, `manual_review`, and `reject` paths | Implemented |
-| Ownership | Static HCL plus optional state correlation; ambiguity and parse failures stop automation | Implemented for documented subset |
+| Ownership | Root-module static HCL plus required state/rule-ID correlation for standalone auto-PR eligibility; ambiguity and parse failures stop automation | Implemented for documented subset; state origin/freshness and Terraform plan binding remain open |
 | Patch | Targeted IPv4/IPv6 standalone rule source replacement | Implemented for documented subset |
 | Validation | Before/after HCL and target semantics plus exact diff-shape check | Implemented, not Terraform-contextual |
 | API | Strict schema, API-key check, readiness, request IDs, sanitized paths/errors, no publication | Implemented baseline |
-| Tests | 76 tests, including AWS event/account/freshness/pagination/tamper cases and prior API/Terraform hardening | Passed locally; the current stacked-PR merge ref must also be green |
+| Tests | 82 tests, including AWS event/account/freshness/pagination/tamper cases, state-bound ownership negatives, and prior API/Terraform hardening | Passed locally; the current stacked-PR merge ref must also be green |
 | Lint | Ruff over the repository | Passed locally; the current stacked-PR merge ref must also be green |
 | Container | Non-root image definition and CI build job | PR merge-ref build passed in GitHub Actions; local Docker was unavailable |
 | Kubernetes | Restricted pod settings and deny-egress policy | YAML parses; no local schema/cluster/CNI verification |

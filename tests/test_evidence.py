@@ -1,4 +1,5 @@
 from pathlib import Path
+from shutil import copyfile
 
 from infraguard.evidence import build_evidence_json, build_pr_markdown
 from infraguard.models import SecurityFinding, SecurityGroupRule
@@ -35,8 +36,14 @@ def test_builds_machine_readable_evidence(tmp_path: Path) -> None:
     target_dir.mkdir()
     target_file = target_dir / "security-groups.tf"
     target_file.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    copyfile(
+        FIXTURES / "standalone_public_ssh" / "terraform-state.json",
+        target_dir / "terraform-state.json",
+    )
 
-    decision = plan_from_terraform(public_ssh_finding(), target_dir, "10.20.30.40/32")
+    decision = plan_from_terraform(
+        public_ssh_finding(), target_dir, "10.20.30.40/32", target_dir / "terraform-state.json"
+    )
     patch = generate_standalone_public_ssh_patch(decision)
     validation = validate_public_ssh_patch(patch)
     evidence = build_evidence_json(decision, patch, validation)
@@ -45,6 +52,9 @@ def test_builds_machine_readable_evidence(tmp_path: Path) -> None:
     assert evidence["decision"] == "auto_pr"
     assert evidence["ownership"] == "terraform_standalone_rule"
     assert evidence["replacement_source"] == "10.20.30.40/32"
+    terraform_resource = evidence["terraform_resource"]
+    assert terraform_resource["ownership_proof"] == "terraform_state_rule_id"  # type: ignore[index]
+    assert terraform_resource["state_rule_id"] == "sgr-1234567890abcdef0"  # type: ignore[index]
     assert evidence["validation"]["passed"] is True  # type: ignore[index]
     provenance = evidence["finding_provenance"]
     assert isinstance(provenance, dict)
@@ -60,8 +70,14 @@ def test_builds_pr_markdown_with_diff_and_checks(tmp_path: Path) -> None:
     target_dir.mkdir()
     target_file = target_dir / "security-groups.tf"
     target_file.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    copyfile(
+        FIXTURES / "standalone_public_ssh" / "terraform-state.json",
+        target_dir / "terraform-state.json",
+    )
 
-    decision = plan_from_terraform(public_ssh_finding(), target_dir, "10.20.30.40/32")
+    decision = plan_from_terraform(
+        public_ssh_finding(), target_dir, "10.20.30.40/32", target_dir / "terraform-state.json"
+    )
     patch = generate_standalone_public_ssh_patch(decision)
     validation = validate_public_ssh_patch(patch)
     markdown = build_pr_markdown(decision, patch, validation)
@@ -70,6 +86,7 @@ def test_builds_pr_markdown_with_diff_and_checks(tmp_path: Path) -> None:
     assert "`auto_pr`" in markdown
     assert "`terraform_standalone_rule`" in markdown
     assert "`sgr-1234567890abcdef0`" in markdown
+    assert "`terraform_state_rule_id`" in markdown
     assert "`aws_ec2_describe_security_group_rules`" in markdown
     assert "- [x] `after_removes_target_public_ssh`" in markdown
     assert '-  cidr_blocks       = ["0.0.0.0/0"]' in markdown

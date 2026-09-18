@@ -47,14 +47,19 @@ has a patch, passing validation, JSON evidence, and PR Markdown. A future publis
 
 | Ownership | Proof | Behavior |
 |---|---|---|
-| `terraform_standalone_rule` | One supported standalone resource matches rule attributes and security-group identity | Eligible for policy and patch gates |
-| `terraform_inline_rule` | One parent security group and inline rule match, with parent ID proven by state | `manual_review`; no inline editor exists |
+| `terraform_standalone_rule` | One direct root-module resource with no `count`/`for_each`, exactly one state instance, matching state/source rule semantics, matching security-group ID, and state rule ID equal to the verified AWS rule ID | Eligible for policy and patch gates |
+| `terraform_inline_rule` | One direct root-module parent security group and exactly one inline rule match, with parent ID proven by state | `manual_review`; no inline editor exists |
 | `unmanaged_remote_rule` | Reserved for a future cloud-correlated path | `manual_review` |
 | `unknown` | No supported unique Terraform owner | `manual_review` |
 
-Any malformed `.tf` file in the scanned root or malformed supplied state fails the request. More
-than one matching resource is an error. Terraform source symlinks and files resolving outside the
-configured root are rejected. This favors false negatives over unsafe edits.
+Any malformed `.tf` file in the scanned root or malformed supplied state fails the request. A
+missing state file, missing state rule ID, zero/multiple state instances, source `count`/`for_each`,
+or state/source mismatch produces no standalone owner and therefore `manual_review`. More than one
+matching resource is an error. Nested module files are not scanned. Terraform source symlinks and
+files resolving outside the configured root are rejected. This favors false negatives over unsafe
+edits. The current local state contract records lineage and serial but does not authenticate state
+origin or prove freshness; a production workflow must bind state to an immutable checkout and
+workspace before enabling this gate.
 
 ## Replacement policy
 

@@ -57,19 +57,23 @@ AND every local validation check passes
 
 ## Ownership proof currently supported
 
-InfraGuard scans root-module `.tf` files and supports these static forms:
+InfraGuard scans only direct `.tf` files in the configured root module and supports these static
+forms:
 
 - `aws_security_group_rule` using `cidr_blocks` or `ipv6_cidr_blocks`;
 - `aws_vpc_security_group_ingress_rule` using `cidr_ipv4` or `cidr_ipv6`;
-- literal `security_group_id = "sg-..."`;
-- state attributes proving the standalone rule's `security_group_id`;
-- a simple `aws_security_group.NAME.id` reference when matching state proves that root resource's
-  ID;
-- inline ingress classification when state proves the parent `aws_security_group` ID.
+- a raw Terraform state file with non-empty lineage and non-negative serial;
+- exactly one unindexed state instance at the exact root resource address;
+- state attributes that match the source and finding's direction, protocol, ports, source,
+  security-group ID, and verified AWS security-group-rule ID;
+- inline ingress classification when state proves the parent `aws_security_group` ID. Inline
+  ownership remains `manual_review` because no inline patcher exists.
 
-Inline rules are deliberately `manual_review`. Modules, nested module addresses, indexed
+Source declarations containing `count` or `for_each`, nested module files/addresses, indexed
 instances, aliases, dynamic blocks, locals, variables, data sources, and general expression
-evaluation are outside the automatic patch boundary.
+evaluation are outside the automatic patch boundary. Source text alone never proves an active
+Terraform owner; a literal security-group ID is only a candidate attribute until state binds the
+resource and live rule.
 
 ## Target production architecture
 
