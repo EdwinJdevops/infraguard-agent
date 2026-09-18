@@ -1,0 +1,28 @@
+{
+  "version": 4,
+  "terraform_version": "1.7.0",
+  "serial": 1,
+  "lineage": "standalone-public-ssh-fixture",
+  "outputs": {},
+  "resources": [
+    {
+      "mode": "managed",
+      "type": "aws_security_group_rule",
+      "name": "ssh_public",
+      "instances": [
+        {
+          "attributes": {
+            "id": "sgr-1234567890abcdef0",
+            "security_group_rule_id": "sgr-1234567890abcdef0",
+            "security_group_id": "sg-1234567890abcdef0",
+            "type": "ingress",
+            "from_port": 22,
+            "to_port": 22,
+            "protocol": "tcp",
+            "cidr_blocks": ["0.0.0.0/0"]
+          }
+        }
+      ]
+    }
+  ]
+}

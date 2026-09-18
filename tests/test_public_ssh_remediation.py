@@ -6,6 +6,7 @@ from infraguard.models import (
     TerraformResourceRef,
 )
 from infraguard.remediation import plan_public_ssh_remediation
+from tests.factories import verified_provenance
 
 
 def public_ssh_finding() -> SecurityFinding:
@@ -23,6 +24,7 @@ def public_ssh_finding() -> SecurityFinding:
             to_port=22,
             source="0.0.0.0/0",
         ),
+        provenance=verified_provenance(),
     )
 
 
@@ -102,6 +104,7 @@ def test_ipv6_unique_local_source_is_accepted() -> None:
             to_port=22,
             source="::/0",
         ),
+        provenance=verified_provenance(source="::/0"),
     )
     decision = plan_public_ssh_remediation(
         finding=ipv6_finding,

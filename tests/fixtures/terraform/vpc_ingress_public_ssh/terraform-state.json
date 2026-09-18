@@ -1,0 +1,27 @@
+{
+  "version": 4,
+  "terraform_version": "1.7.0",
+  "serial": 1,
+  "lineage": "vpc-ingress-public-ssh-fixture",
+  "outputs": {},
+  "resources": [
+    {
+      "mode": "managed",
+      "type": "aws_vpc_security_group_ingress_rule",
+      "name": "ssh_public",
+      "instances": [
+        {
+          "attributes": {
+            "id": "sgr-1234567890abcdef0",
+            "security_group_rule_id": "sgr-1234567890abcdef0",
+            "security_group_id": "sg-1234567890abcdef0",
+            "from_port": 22,
+            "to_port": 22,
+            "ip_protocol": "tcp",
+            "cidr_ipv4": "0.0.0.0/0"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -11,28 +11,29 @@ mutation privileges.
 
 ```mermaid
 flowchart TD
-    A[Authenticated request] --> B[Strict finding schema]
-    B --> C[Read trusted Terraform source and optional state]
-    C --> D{Exactly one owner?}
-    D -->|No or inline| E[Manual review]
-    D -->|Malformed or ambiguous| F[Fail closed]
-    D -->|Supported standalone rule| G[Allowlist policy]
-    G -->|Rejected| H[Reject]
-    G -->|Approved| I[Generate targeted source diff]
-    I --> J[Parse and semantic checks]
-    J -->|Pass| K[Return patch and evidence]
-    J -->|Fail| F
+    A["Untrusted finding claim"] --> B{"Live AWS provenance?"}
+    B -->|No| C["Manual review; no source scan"]
+    B -->|Yes| D["Read trusted Terraform source/state"]
+    D --> E{"Exactly one supported owner?"}
+    E -->|No| C
+    E -->|Malformed| F["Fail closed"]
+    E -->|Yes| G["Policy + targeted patch"]
+    G --> H["HCL and semantic validation"]
+    H -->|Pass| I["Return patch and evidence"]
+    H -->|Fail| F
 ```
 
 The API process has no GitHub client and does not write the mounted checkout. The lower-level
 `write_patch` helper exists for tests and future isolated workers; the API does not call it.
+The AWS verification core accepts injected STS/EC2-compatible clients, but no runtime endpoint or
+worker currently constructs them. Direct API claims never satisfy the provenance gate.
 
 ## Decision boundary
 
 The automation boundary is an explicit conjunction:
 
 ```text
-public SSH finding
+fresh Security Hub CSPM event bound to one current EC2 rule
 AND exactly one supported Terraform owner
 AND operator-approved replacement source
 AND targeted patch generated
@@ -46,7 +47,8 @@ AND every local validation check passes
 
 | Component | Responsibility | Explicitly does not do |
 |---|---|---|
-| `api/` | Configuration readiness, authentication, schema validation, throttling, response sanitization | Clone, write files, call AWS/GitHub, publish PRs |
+| `api/` | Configuration readiness, authentication, untrusted-claim triage, throttling, response sanitization | Attest AWS provenance, clone, write files, call AWS/GitHub, publish PRs |
+| `infraguard/aws_verification.py` | Validate one EC2.13 ASFF event and bind it to current read-only AWS rule evidence | Assume roles, configure AWS clients, queue/retry, mutate AWS |
 | `infraguard/ownership.py` | Parse HCL/state and prove one supported owner | Evaluate arbitrary Terraform expressions or modules |
 | `infraguard/policy.py` | Normalize and constrain replacement CIDRs | Decide whether a network is operationally reachable |
 | `infraguard/patches.py` | Produce an in-memory targeted static-HCL change | Apply Terraform or commit to Git |
@@ -55,19 +57,23 @@ AND every local validation check passes
 
 ## Ownership proof currently supported
 
-InfraGuard scans root-module `.tf` files and supports these static forms:
+InfraGuard scans only direct `.tf` files in the configured root module and supports these static
+forms:
 
 - `aws_security_group_rule` using `cidr_blocks` or `ipv6_cidr_blocks`;
 - `aws_vpc_security_group_ingress_rule` using `cidr_ipv4` or `cidr_ipv6`;
-- literal `security_group_id = "sg-..."`;
-- state attributes proving the standalone rule's `security_group_id`;
-- a simple `aws_security_group.NAME.id` reference when matching state proves that root resource's
-  ID;
-- inline ingress classification when state proves the parent `aws_security_group` ID.
+- a raw Terraform state file with non-empty lineage and non-negative serial;
+- exactly one unindexed state instance at the exact root resource address;
+- state attributes that match the source and finding's direction, protocol, ports, source,
+  security-group ID, and verified AWS security-group-rule ID;
+- inline ingress classification when state proves the parent `aws_security_group` ID. Inline
+  ownership remains `manual_review` because no inline patcher exists.
 
-Inline rules are deliberately `manual_review`. Modules, nested module addresses, indexed
+Source declarations containing `count` or `for_each`, nested module files/addresses, indexed
 instances, aliases, dynamic blocks, locals, variables, data sources, and general expression
-evaluation are outside the automatic patch boundary.
+evaluation are outside the automatic patch boundary. Source text alone never proves an active
+Terraform owner; a literal security-group ID is only a candidate attribute until state binds the
+resource and live rule.
 
 ## Target production architecture
 
@@ -86,8 +92,8 @@ flowchart TD
 
 ### Required properties
 
-1. **Verified intake:** accept signed provider events or perform a read-only live lookup. Bind
-   account, region, resource, rule identity, observed time, and detector/version.
+1. **Verified intake:** compose the implemented Security Hub CSPM/EC2 verification core behind an
+   encrypted queue, account-owned role policy, durable deduplication, bounded retries, and DLQ.
 2. **Durable workflow:** persist a state machine such as `received -> analyzed -> proposed ->
    published -> merged -> deployed -> verified`, plus terminal rejection and failure states.
 3. **Immutable analysis:** clone an allowlisted repository into an ephemeral workspace at an exact
@@ -120,3 +126,6 @@ The Kubernetes manifests are a security-oriented deployment contract for the rea
 complete platform. They require operator-created secrets, policy configuration, a trusted checkout
 PVC, ingress/TLS, and a built/scanned/signed image. See [`../k8s/README.md`](../k8s/README.md) and
 [`operations.md`](operations.md).
+
+The exact AWS trust contract and remaining composition requirements are in
+[`trusted-finding-provenance.md`](trusted-finding-provenance.md).

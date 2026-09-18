@@ -15,6 +15,13 @@ def plan_from_terraform(
     terraform_state_path: Path | None = None,
     allowed_replacement_sources: Collection[str] | None = None,
 ) -> RemediationDecision:
+    if not finding.has_verified_provenance():
+        return plan_public_ssh_remediation(
+            finding=finding,
+            terraform_resource=None,
+            replacement_source=replacement_source,
+            allowed_replacement_sources=allowed_replacement_sources,
+        )
     terraform_resource = classify_security_group_ownership(
         finding=finding,
         terraform_root=terraform_root,

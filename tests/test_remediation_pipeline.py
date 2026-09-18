@@ -2,6 +2,7 @@ from pathlib import Path
 
 from infraguard.models import Decision, Ownership, SecurityFinding, SecurityGroupRule
 from infraguard.pipeline import plan_from_terraform
+from tests.factories import verified_provenance
 
 FIXTURES = Path(__file__).parent / "fixtures" / "terraform"
 
@@ -21,6 +22,7 @@ def public_ssh_finding() -> SecurityFinding:
             to_port=22,
             source="0.0.0.0/0",
         ),
+        provenance=verified_provenance(),
     )
 
 
@@ -28,6 +30,7 @@ def test_pipeline_allows_auto_pr_for_proven_standalone_rule() -> None:
     decision = plan_from_terraform(
         finding=public_ssh_finding(),
         terraform_root=FIXTURES / "standalone_public_ssh",
+        terraform_state_path=FIXTURES / "standalone_public_ssh" / "terraform-state.json",
         replacement_source="10.20.30.40/32",
     )
 
@@ -68,6 +71,7 @@ def test_pipeline_rejects_public_replacement_source_even_with_ownership() -> Non
     decision = plan_from_terraform(
         finding=public_ssh_finding(),
         terraform_root=FIXTURES / "standalone_public_ssh",
+        terraform_state_path=FIXTURES / "standalone_public_ssh" / "terraform-state.json",
         replacement_source="0.0.0.0/0",
     )
 

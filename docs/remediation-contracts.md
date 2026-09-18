@@ -22,8 +22,10 @@ rejected.
 | `rule.source` | `0.0.0.0/0` or `::/0` |
 | `replacement_source` | Optional syntactically; required for automatic eligibility |
 
-Authentication does not prove the finding came from AWS. Finding provenance is a production
-release gate.
+Authentication does not prove the finding came from AWS. The HTTP schema intentionally cannot
+assert internal provenance, so direct requests cannot produce a patch and return `manual_review`.
+Trusted findings must be created by the AWS verification core described in
+[`trusted-finding-provenance.md`](trusted-finding-provenance.md).
 
 ## Decision contract
 
@@ -33,6 +35,10 @@ release gate.
 | `manual_review` | Finding may be real, but ownership or supported editability is not proven | No patch or publication evidence |
 | `reject` | Finding or replacement violates the supported capability/policy | No patch or publication evidence |
 
+For the HTTP endpoint, an otherwise valid public-SSH claim stops at `manual_review` before reading
+Terraform because it has no independent AWS provenance. The `auto_pr` contract applies to internal
+callers that supply a provenance-bound finding; no such runtime worker is currently shipped.
+
 `can_open_pr` is stricter than the decision field: it is true only when an `auto_pr` decision also
 has a patch, passing validation, JSON evidence, and PR Markdown. A future publisher must require
 `can_open_pr`, rerun freshness checks, and then record its own publication result.
@@ -41,14 +47,19 @@ has a patch, passing validation, JSON evidence, and PR Markdown. A future publis
 
 | Ownership | Proof | Behavior |
 |---|---|---|
-| `terraform_standalone_rule` | One supported standalone resource matches rule attributes and security-group identity | Eligible for policy and patch gates |
-| `terraform_inline_rule` | One parent security group and inline rule match, with parent ID proven by state | `manual_review`; no inline editor exists |
+| `terraform_standalone_rule` | One direct root-module resource with no `count`/`for_each`, exactly one state instance, matching state/source rule semantics, matching security-group ID, and state rule ID equal to the verified AWS rule ID | Eligible for policy and patch gates |
+| `terraform_inline_rule` | One direct root-module parent security group and exactly one inline rule match, with parent ID proven by state | `manual_review`; no inline editor exists |
 | `unmanaged_remote_rule` | Reserved for a future cloud-correlated path | `manual_review` |
 | `unknown` | No supported unique Terraform owner | `manual_review` |
 
-Any malformed `.tf` file in the scanned root or malformed supplied state fails the request. More
-than one matching resource is an error. Terraform source symlinks and files resolving outside the
-configured root are rejected. This favors false negatives over unsafe edits.
+Any malformed `.tf` file in the scanned root or malformed supplied state fails the request. A
+missing state file, missing state rule ID, zero/multiple state instances, source `count`/`for_each`,
+or state/source mismatch produces no standalone owner and therefore `manual_review`. More than one
+matching resource is an error. Nested module files are not scanned. Terraform source symlinks and
+files resolving outside the configured root are rejected. This favors false negatives over unsafe
+edits. The current local state contract records lineage and serial but does not authenticate state
+origin or prove freshness; a production workflow must bind state to an immutable checkout and
+workspace before enabling this gate.
 
 ## Replacement policy
 
@@ -87,7 +98,8 @@ sufficient for production publication; Terraform CLI validation and plan policy 
 - `/livez` proves only that the process can answer HTTP.
 - `/readyz` and `/health` validate required local configuration and return `503` when unusable.
 - API documentation is disabled unless `INFRAGUARD_DOCS_ENABLED=true`.
-- Planning is limited to five requests per minute per observed client address, per process.
+- Untrusted-claim triage is limited to five requests per minute per observed client address, per
+  process.
 - Responses include a bounded request ID, `Cache-Control: no-store`, and
   `X-Content-Type-Options: nosniff`.
 - The legacy `/remediate` endpoint returns `410 Gone` after authentication.

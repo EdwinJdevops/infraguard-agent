@@ -76,7 +76,7 @@ def test_remediation_plan_requires_authentication() -> None:
     assert response.json()["detail"] == "invalid or missing API key"
 
 
-def test_remediation_plan_returns_validated_proposal_without_publishing() -> None:
+def test_unverified_api_claim_cannot_produce_patch_or_publication() -> None:
     terraform_root = (FIXTURES / "standalone_public_ssh").resolve()
     target_file = terraform_root / "security-groups.tf"
     source_before = target_file.read_text(encoding="utf-8")
@@ -89,11 +89,14 @@ def test_remediation_plan_returns_validated_proposal_without_publishing() -> Non
     assert response.status_code == 200
     assert response.headers["X-Request-ID"] == "request-123"
     body = response.json()
-    assert body["decision"] == "auto_pr"
-    assert body["can_open_pr"] is True
+    assert body["decision"] == "manual_review"
+    assert body["can_open_pr"] is False
     assert body["publication"] == "not_attempted"
-    assert body["patch"]["file_path"] == "security-groups.tf"
-    assert body["validation"]["passed"] is True
+    assert body["patch"] is None
+    assert body["validation"] is None
+    assert body["evidence_bundle"] is None
+    assert body["pr_body"] is None
+    assert "independent live AWS rule verification" in body["reason"]
     assert str(terraform_root) not in response.text
     assert target_file.read_text(encoding="utf-8") == source_before
 
@@ -113,7 +116,7 @@ def test_unknown_ownership_returns_manual_review_without_patch() -> None:
     assert body["publication"] == "not_attempted"
 
 
-def test_replacement_source_must_be_deployment_allowlisted() -> None:
+def test_unverified_api_claim_is_stopped_before_replacement_policy() -> None:
     response = client(FIXTURES / "standalone_public_ssh").post(
         "/v1/remediation-plans",
         headers={"X-API-Key": API_KEY},
@@ -122,9 +125,9 @@ def test_replacement_source_must_be_deployment_allowlisted() -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["decision"] == "reject"
+    assert body["decision"] == "manual_review"
     assert body["can_open_pr"] is False
-    assert "allowlist" in body["reason"]
+    assert "independent live AWS rule verification" in body["reason"]
 
 
 def test_invalid_payload_is_rejected_before_planning() -> None:
@@ -137,7 +140,7 @@ def test_invalid_payload_is_rejected_before_planning() -> None:
     assert response.status_code == 422
 
 
-def test_malformed_terraform_returns_sanitized_error(tmp_path: Path) -> None:
+def test_unverified_api_claim_does_not_parse_terraform(tmp_path: Path) -> None:
     (tmp_path / "main.tf").write_text('resource "aws_security_group" "broken" {', encoding="utf-8")
     response = client(tmp_path).post(
         "/v1/remediation-plans",
@@ -145,10 +148,9 @@ def test_malformed_terraform_returns_sanitized_error(tmp_path: Path) -> None:
         json=payload(),
     )
 
-    assert response.status_code == 422
-    assert response.json()["detail"] == (
-        "Terraform evidence could not produce a safe remediation plan"
-    )
+    assert response.status_code == 200
+    assert response.json()["decision"] == "manual_review"
+    assert response.json()["patch"] is None
     assert str(tmp_path) not in response.text
 
 

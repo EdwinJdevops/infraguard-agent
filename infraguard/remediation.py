@@ -45,6 +45,16 @@ def plan_public_ssh_remediation(
             replacement_source=None,
         )
 
+    if not finding.has_verified_provenance():
+        return RemediationDecision(
+            decision=Decision.MANUAL_REVIEW,
+            reason="finding has no independent live AWS rule verification",
+            finding=finding,
+            ownership=Ownership.UNKNOWN,
+            replacement_source=None,
+            evidence=["public_ssh_claim_received", "finding_provenance_unverified"],
+        )
+
     if terraform_resource is None or terraform_resource.ownership == Ownership.UNKNOWN:
         return RemediationDecision(
             decision=Decision.MANUAL_REVIEW,

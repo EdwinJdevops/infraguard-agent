@@ -1,14 +1,15 @@
 # InfraGuard
 
 InfraGuard is an evidence-first remediation planner for Terraform-managed cloud security
-findings. Its first supported slice detects an AWS security group rule that exposes SSH to the
-internet, proves which Terraform resource owns that rule, proposes a source-CIDR replacement,
-and returns a validated patch plus review evidence.
+findings. Its first narrow slice can validate a Security Hub CSPM EC2.13 event against live,
+read-only EC2 rule evidence, prove a supported Terraform owner, propose a source-CIDR replacement,
+and return a validated patch plus review evidence.
 
 **Status: alpha production baseline.** The deterministic planning core and read-only API are
-implemented and locally tested. InfraGuard does **not** yet clone repositories, create branches,
-publish pull requests, run `terraform plan`, or verify a finding after deployment. Do not describe
-this repository as production-ready until the release gates in
+implemented and locally tested. The AWS verifier is a library boundary and is not connected to
+runtime AWS clients or a queue worker. InfraGuard does **not** yet clone repositories, create
+branches, publish pull requests, run `terraform plan`, or verify a finding after deployment. Do
+not describe this repository as production-ready until the release gates in
 [`docs/production-readiness.md`](docs/production-readiness.md) are closed.
 
 ## Why PR #1 must not merge
@@ -23,11 +24,13 @@ public SSH source.
 
 | Capability | Current behavior |
 |---|---|
+| Trusted finding | Strict Security Hub CSPM ASFF `EC2.13` parser plus independent EC2 rule verification core |
+| Runtime AWS intake | Not implemented; no EventBridge/SQS worker, STS composition, or cloud credentials |
 | Provider/finding | AWS security group ingress, TCP port range containing 22 |
 | Public sources | `0.0.0.0/0` and `::/0` |
 | Standalone resources | `aws_security_group_rule` and `aws_vpc_security_group_ingress_rule` |
 | Inline `aws_security_group.ingress` | Ownership classification only; always `manual_review` |
-| Ownership proof | Exact literal security-group ID, matching rule state, or a simple root-module security-group reference proven by state |
+| Ownership proof | Automatic standalone remediation requires one root-module `.tf` declaration, one matching state instance, exact security-group/rule semantics, and the verified AWS rule ID in state; source text alone is insufficient |
 | Replacement policy | Exact deployment allowlist entry that is RFC1918 IPv4 or IPv6 ULA |
 | Patch validation | Targeted one-line source change, HCL parse, target-rule semantic checks |
 | Publication | Not implemented; API always returns `publication: not_attempted` |
@@ -35,7 +38,8 @@ public SSH source.
 
 `decision: auto_pr` means the proposal is eligible for a future publisher. It does not mean a
 branch or pull request exists. Only `can_open_pr: true` indicates that decision, patch, validation,
-and evidence are all present in the returned planning result.
+and evidence are all present in the returned planning result. The current HTTP request schema
+cannot carry trusted provenance, so direct JSON claims return `manual_review` and no patch.
 
 ## Quick start
 
@@ -56,9 +60,13 @@ export INFRAGUARD_ALLOWED_SSH_CIDRS='10.20.30.40/32,fd00:1234::/64'
 python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
 ```
 
-If the security group is referenced rather than written as a literal ID, set
-`INFRAGUARD_TERRAFORM_STATE_PATH` to a matching local state JSON file. Terraform state can contain
-secrets; mount it read-only and do not log, commit, or return it.
+Set `INFRAGUARD_TERRAFORM_STATE_PATH` to a matching local raw state JSON file for any trusted
+finding. Automatic standalone remediation is refused without state, and the state must contain
+lineage, serial, one unindexed instance at the exact root resource address, matching rule
+attributes, and the verified AWS security-group-rule ID. Terraform state can contain secrets;
+mount it read-only and do not log, commit, or return it. State authenticity, backend lineage, and
+freshness are not established by this local path contract; production intake must acquire and bind
+state through a trusted backend workflow.
 
 Example request:
 
@@ -85,6 +93,11 @@ curl --fail-with-body \
   }'
 ```
 
+This request demonstrates the authenticated triage contract. Because it is self-reported JSON and
+the API has no AWS client, the response is `manual_review`; it cannot produce a patch. Automatic
+eligibility is currently reachable only through the internal verified-finding interface exercised
+by tests. See [trusted AWS finding provenance](docs/trusted-finding-provenance.md).
+
 The Terraform root must contain exactly one supported resource matching the finding. Unknown or
 ambiguous ownership returns `manual_review` or a sanitized `422`; it does not guess.
 
@@ -105,14 +118,16 @@ gate. HashiCorp documents that `terraform validate` checks syntax and internal c
 ## Repository map
 
 - `api/`: authenticated, rate-limited, read-only planning API.
-- `infraguard/`: deterministic ownership, policy, patching, validation, and evidence core.
+- `infraguard/`: deterministic AWS verification, ownership, policy, patching, validation, and
+  evidence core.
 - `tests/`: unit and component tests plus Terraform fixtures.
 - `k8s/`: hardened single-replica planning deployment contract.
 - `docs/`: architecture, contracts, operations, threat model, and release gates.
 - The unsafe hackathon publisher/model prototype has been removed from the shipping tree. It
   remains available in Git history for archaeology.
 
-Start with the [architecture](docs/architecture.md), [security model](SECURITY.md), and
+Start with the [architecture](docs/architecture.md),
+[trusted-finding contract](docs/trusted-finding-provenance.md), [security model](SECURITY.md), and
 [production-readiness verdict](docs/production-readiness.md).
 
 ## Product direction

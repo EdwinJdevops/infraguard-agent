@@ -1,7 +1,8 @@
 # Operations runbook
 
-This runbook covers the current read-only planning API. It does not cover a publisher or AWS
-verifier because neither exists.
+This runbook covers the current read-only API. It does not cover a publisher or a deployed AWS
+verification worker because neither exists. A pure AWS verification core exists but is not wired to
+runtime clients, IAM, EventBridge, SQS, or durable state.
 
 ## Preconditions
 
@@ -46,11 +47,10 @@ safety.
 
 | HTTP/result | Operator meaning | Action |
 |---|---|---|
-| `200 auto_pr`, `can_open_pr=true` | Local proposal passed implemented gates | Review returned diff/evidence; no PR exists |
-| `200 manual_review` | Ownership/edit support is insufficient | Route to an infrastructure owner; do not force automation |
+| `200 manual_review` | Direct claim lacks AWS provenance, or ownership/edit support is insufficient | Route to trusted intake/human review; do not force automation |
 | `200 reject` | Finding/replacement violates capability or policy | Correct the input/policy through controlled change |
 | `401` | API key missing or invalid | Check caller identity/secret rotation; investigate repeated failures |
-| `422` | Invalid request or unsafe Terraform evidence | Inspect trusted internal logs using request ID; do not expose parser internals to caller |
+| `422` | Invalid request; future trusted callers may also use it for unsafe Terraform evidence | Inspect trusted internal logs using request ID; do not expose parser internals to caller |
 | `429` | Per-process rate limit exceeded | Apply backoff; investigate abuse or caller loops |
 | `503` | Required configuration unavailable | Check `/readyz`; keep traffic out until corrected |
 
