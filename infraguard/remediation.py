@@ -5,6 +5,7 @@ from collections.abc import Collection
 from infraguard.models import (
     Decision,
     Ownership,
+    OwnershipProof,
     RemediationDecision,
     SecurityFinding,
     TerraformResourceRef,
@@ -89,6 +90,23 @@ def plan_public_ssh_remediation(
                 "inline_patch_unsupported",
             ],
             terraform_resource=terraform_resource,
+        )
+
+    if (
+        terraform_resource.ownership_proof != OwnershipProof.TERRAFORM_STATE_RULE_ID
+        or terraform_resource.state_rule_id != finding.provenance.security_group_rule_id
+        or not terraform_resource.state_lineage
+        or type(terraform_resource.state_serial) is not int
+        or terraform_resource.state_serial < 0
+        or not terraform_resource.file_path
+    ):
+        return RemediationDecision(
+            decision=Decision.MANUAL_REVIEW,
+            reason="standalone ownership reference lacks matching state rule evidence",
+            finding=finding,
+            ownership=Ownership.UNKNOWN,
+            replacement_source=None,
+            evidence=["public_ssh_detected", "terraform_state_rule_evidence_missing"],
         )
 
     if replacement_source is None:

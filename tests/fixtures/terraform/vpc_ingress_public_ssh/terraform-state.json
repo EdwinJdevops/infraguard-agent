@@ -9,6 +9,7 @@
       "mode": "managed",
       "type": "aws_vpc_security_group_ingress_rule",
       "name": "ssh_public",
+      "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
       "instances": [
         {
           "attributes": {

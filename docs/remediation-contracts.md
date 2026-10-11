@@ -47,18 +47,26 @@ has a patch, passing validation, JSON evidence, and PR Markdown. A future publis
 
 | Ownership | Proof | Behavior |
 |---|---|---|
-| `terraform_standalone_rule` | One direct root-module resource with no `count`/`for_each`, exactly one state instance, matching state/source rule semantics, matching security-group ID, and state rule ID equal to the verified AWS rule ID | Eligible for policy and patch gates |
+| `terraform_standalone_rule` | One literal root-module resource with no `count`/`for_each`, provider override, lifecycle, provisioner, or connection; one unindexed, non-deposed, ready default AWS-provider state instance; exactly one source; matching source/state SG ID, semantics, and live rule ID | Eligible for local policy and patch gates; production publication gates remain open |
 | `terraform_inline_rule` | One direct root-module parent security group and exactly one inline rule match, with parent ID proven by state | `manual_review`; no inline editor exists |
 | `unmanaged_remote_rule` | Reserved for a future cloud-correlated path | `manual_review` |
 | `unknown` | No supported unique Terraform owner | `manual_review` |
 
+State must be raw version-4 JSON with nonempty lineage and an integer non-negative serial.
+Duplicate keys, malformed resource/instance attributes, and duplicate managed addresses are
+errors. Roots with `.tf.json`, `override.tf`, or `*_override.tf` are rejected because the scanner
+does not implement Terraform's JSON or merge semantics. Source SG references and expressions
+require plan resolution and are ineligible even if old state appears to match.
+
 Any malformed `.tf` file in the scanned root or malformed supplied state fails the request. A
-missing state file, missing state rule ID, zero/multiple state instances, source `count`/`for_each`,
+missing state path is an error. Missing state evidence, zero/multiple state instances, `count`/`for_each`,
 or state/source mismatch produces no standalone owner and therefore `manual_review`. More than one
 matching resource is an error. Nested module files are not scanned. Terraform source symlinks and
 files resolving outside the configured root are rejected. This favors false negatives over unsafe
 edits. The current local state contract records lineage and serial but does not authenticate state
-origin or prove freshness; a production workflow must bind state to an immutable checkout and
+origin or prove freshness. Planner references must also carry matching rule ID, proof kind,
+lineage, serial, and path; these fields are internal consistency checks, not authenticated evidence.
+A production workflow must bind state to an immutable checkout and
 workspace before enabling this gate.
 
 ## Replacement policy
@@ -92,6 +100,14 @@ The in-memory patch must:
 
 Unsupported formatting or expressions fail closed. Local semantic validation is necessary but not
 sufficient for production publication; Terraform CLI validation and plan policy are still required.
+
+The separate integration suite uses Terraform 1.9.8 and the real AWS provider 6.10.0 with a
+committed checksum lock, synthetic state, disabled refresh, and loopback service endpoints.
+It asserts a no-op baseline and a single planned resource change after patching. The legacy
+`aws_security_group_rule` CIDR attributes are `ForceNew` in that provider: the expected plan is
+delete/create, not an in-place edit. The newer ingress resource permits a source update.
+Fixture checks do not authorize production replacement. A runtime plan gate must reject unrelated
+changes and require an explicit disruption policy for replacements; it is not implemented here.
 
 ## API operational contract
 
