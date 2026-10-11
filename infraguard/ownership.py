@@ -34,6 +34,15 @@ def classify_security_group_ownership(
     state = _load_state(terraform_state_path)
     matches: list[TerraformResourceRef] = []
     trusted_root = terraform_root.resolve()
+    if not trusted_root.is_dir():
+        raise OwnershipError("Terraform root is not a directory")
+    for path in trusted_root.iterdir():
+        if (
+            path.name.endswith(".tf.json")
+            or path.name == "override.tf"
+            or path.name.endswith("_override.tf")
+        ):
+            raise OwnershipError("unsupported Terraform configuration: JSON or override files")
     for discovered_path in sorted(trusted_root.glob("*.tf")):
         file_path = _trusted_terraform_file(discovered_path, trusted_root)
         try:
@@ -126,32 +135,71 @@ def _load_state(terraform_state_path: Path | None) -> _TerraformState | None:
 
     try:
         with terraform_state_path.open("r", encoding="utf-8") as handle:
-            state = json.load(handle)
-    except (OSError, json.JSONDecodeError) as exc:
+            state = json.load(handle, object_pairs_hook=_unique_json_object)
+    except (OSError, ValueError) as exc:
         raise OwnershipError(f"failed to parse Terraform state: {exc}") from exc
-    if not isinstance(state, dict) or not isinstance(state.get("resources"), list):
+    if (
+        not isinstance(state, dict)
+        or type(state.get("version")) is not int
+        or state["version"] != 4
+        or not isinstance(state.get("resources"), list)
+    ):
         raise OwnershipError("failed to parse Terraform state: invalid state structure")
     lineage = state.get("lineage")
     serial = state.get("serial")
-    if not isinstance(lineage, str) or not lineage or not isinstance(serial, int) or serial < 0:
+    if not isinstance(lineage, str) or not lineage.strip() or type(serial) is not int or serial < 0:
         raise OwnershipError(
             "failed to parse Terraform state: lineage and non-negative serial are required"
         )
 
     resource_attributes: dict[str, list[dict[str, Any]]] = {}
+    seen_addresses: set[str] = set()
     for resource in state.get("resources", []):
+        if not isinstance(resource, dict):
+            raise OwnershipError("invalid Terraform state resource")
         mode = resource.get("mode")
         resource_type = resource.get("type")
         name = resource.get("name")
-        if mode != "managed" or not resource_type or not name:
+        if mode not in ("managed", "data") or not all(
+            isinstance(value, str) and value for value in (resource_type, name)
+        ):
+            raise OwnershipError("invalid Terraform state resource identity")
+        if mode != "managed":
             continue
         module = resource.get("module")
+        if module is not None and not isinstance(module, str):
+            raise OwnershipError("invalid Terraform state module address")
         address = f"{module}.{resource_type}.{name}" if module else f"{resource_type}.{name}"
-        for instance in resource.get("instances", []):
-            attributes = instance.get("attributes", {})
-            if isinstance(attributes, dict):
-                resource_attributes.setdefault(address, []).append(attributes)
+        if address in seen_addresses:
+            raise OwnershipError("duplicate managed resource address in Terraform state")
+        seen_addresses.add(address)
+        instances = resource.get("instances")
+        if not isinstance(instances, list):
+            raise OwnershipError("invalid Terraform state instances")
+        supported = resource.get("provider") == 'provider["registry.terraform.io/hashicorp/aws"]'
+        attributes_list = []
+        for instance in instances:
+            if not isinstance(instance, dict) or not isinstance(instance.get("attributes"), dict):
+                raise OwnershipError("invalid Terraform state instance attributes")
+            if (
+                "index_key" in instance
+                or "deposed" in instance
+                or instance.get("status") not in (None, "ready")
+            ):
+                supported = False
+            attributes_list.append(instance["attributes"])
+        if supported:
+            resource_attributes[address] = attributes_list
     return _TerraformState(resources=resource_attributes, lineage=lineage, serial=serial)
+
+
+def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise OwnershipError("duplicate key in Terraform state JSON")
+        result[key] = value
+    return result
 
 
 def _standalone_rule_matches(
@@ -168,6 +216,8 @@ def _standalone_rule_matches(
         or provenance is None
         or "count" in body
         or "for_each" in body
+        or any(key in body for key in ("provider", "lifecycle", "provisioner", "connection"))
+        or body.get("security_group_id") != finding.resource_id
     ):
         return False
     instances = state.resources.get(address, [])
@@ -181,6 +231,12 @@ def _standalone_rule_matches(
         source_matches = _single_source_matches(
             body.get(source_attribute), finding.rule.source
         ) and _single_source_matches(attributes.get(source_attribute), finding.rule.source)
+        other_sources = (
+            "cidr_blocks" if source_attribute == "ipv6_cidr_blocks" else "ipv6_cidr_blocks",
+            "source_security_group_id",
+            "prefix_list_ids",
+            "self",
+        )
         source_semantics_match = (
             body.get("type") == finding.rule.direction
             and attributes.get("type") == finding.rule.direction
@@ -193,6 +249,11 @@ def _standalone_rule_matches(
             body.get(source_attribute) == finding.rule.source
             and attributes.get(source_attribute) == finding.rule.source
         )
+        other_sources = (
+            "cidr_ipv4" if source_attribute == "cidr_ipv6" else "cidr_ipv6",
+            "referenced_security_group_id",
+            "prefix_list_id",
+        )
         source_semantics_match = (
             finding.rule.direction == "ingress"
             and _protocol_matches(body.get("ip_protocol"), finding.rule.protocol)
@@ -200,6 +261,10 @@ def _standalone_rule_matches(
         )
     return bool(
         source_matches
+        and all(
+            _empty_source(body.get(key)) and _empty_source(attributes.get(key))
+            for key in other_sources
+        )
         and source_semantics_match
         and _int_value(body.get("from_port")) == finding.rule.from_port
         and _int_value(attributes.get("from_port")) == finding.rule.from_port
@@ -261,6 +326,10 @@ def _state_has_attribute(
 
 def _single_source_matches(value: Any, expected: str) -> bool:
     return isinstance(value, list) and value == [expected]
+
+
+def _empty_source(value: Any) -> bool:
+    return value is None or value is False or value == [] or value == ""
 
 
 def _int_value(value: Any) -> int | None:

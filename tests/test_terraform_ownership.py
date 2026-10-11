@@ -1,4 +1,5 @@
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,126 @@ from infraguard.ownership import OwnershipError, classify_security_group_ownersh
 from tests.factories import verified_provenance
 
 FIXTURES = Path(__file__).parent / "fixtures" / "terraform"
+
+
+def copy_standalone_fixture(tmp_path: Path) -> tuple[Path, Path, dict]:
+    source = tmp_path / "security-groups.tf"
+    state = tmp_path / "terraform-state.json"
+    fixture = FIXTURES / "standalone_public_ssh"
+    shutil.copyfile(fixture / source.name, source)
+    shutil.copyfile(fixture / state.name, state)
+    return source, state, json.loads(state.read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("source_group", ['"sg-00000000000000000"', "var.security_group_id"])
+def test_changed_or_unresolved_source_group_is_not_proven(
+    tmp_path: Path, source_group: str
+) -> None:
+    source, state, _ = copy_standalone_fixture(tmp_path)
+    source.write_text(
+        source.read_text(encoding="utf-8").replace('"sg-1234567890abcdef0"', source_group),
+        encoding="utf-8",
+    )
+    assert classify_security_group_ownership(public_ssh_finding(), tmp_path, state) is None
+
+
+@pytest.mark.parametrize("meta", [
+    "provider = aws.other",
+    "lifecycle { ignore_changes = [cidr_blocks] }",
+    "lifecycle { create_before_destroy = true }",
+    'provisioner "local-exec" { command = "echo example" }',
+])
+def test_unsupported_resource_semantics_are_not_proven(tmp_path: Path, meta: str) -> None:
+    source, state, _ = copy_standalone_fixture(tmp_path)
+    source.write_text(source.read_text().replace("{\n", f"{{\n  {meta}\n", 1))
+    assert classify_security_group_ownership(public_ssh_finding(), tmp_path, state) is None
+
+
+@pytest.mark.parametrize("key,value", [
+    ("index_key", 0), ("index_key", "only"), ("deposed", "deadbeef"), ("status", "tainted"),
+])
+def test_unsupported_state_instance_is_not_proven(tmp_path: Path, key: str, value: object) -> None:
+    _, state, data = copy_standalone_fixture(tmp_path)
+    data["resources"][0]["instances"][0][key] = value
+    state.write_text(json.dumps(data))
+    assert classify_security_group_ownership(public_ssh_finding(), tmp_path, state) is None
+
+
+@pytest.mark.parametrize("extra", [
+    'ipv6_cidr_blocks = ["::/0"]', 'source_security_group_id = "sg-00000000000000000"',
+    'prefix_list_ids = ["pl-00000000000000000"]',
+    "self = true",
+])
+def test_additional_legacy_source_is_not_proven(tmp_path: Path, extra: str) -> None:
+    source, state, _ = copy_standalone_fixture(tmp_path)
+    source.write_text(source.read_text().replace("{\n", f"{{\n  {extra}\n", 1))
+    assert classify_security_group_ownership(public_ssh_finding(), tmp_path, state) is None
+
+
+@pytest.mark.parametrize("extra_file", ["override.tf", "network_override.tf", "other.tf.json"])
+def test_uninterpreted_configuration_file_is_rejected(tmp_path: Path, extra_file: str) -> None:
+    _, state, _ = copy_standalone_fixture(tmp_path)
+    (tmp_path / extra_file).write_text("{}" if extra_file.endswith(".json") else "")
+    with pytest.raises(OwnershipError, match="unsupported Terraform configuration"):
+        classify_security_group_ownership(public_ssh_finding(), tmp_path, state)
+
+
+@pytest.mark.parametrize(
+    "mutation", ["resource", "instances", "instance", "attributes", "version", "serial"]
+)
+def test_malformed_state_fails_with_domain_error(tmp_path: Path, mutation: str) -> None:
+    _, state, data = copy_standalone_fixture(tmp_path)
+    if mutation == "resource":
+        data["resources"] = [None]
+    elif mutation == "instances":
+        data["resources"][0]["instances"] = {}
+    elif mutation == "instance":
+        data["resources"][0]["instances"] = [None]
+    elif mutation == "attributes":
+        data["resources"][0]["instances"][0]["attributes"] = []
+    elif mutation == "version":
+        data["version"] = 3
+    else:
+        data["serial"] = True
+    state.write_text(json.dumps(data))
+    with pytest.raises(OwnershipError):
+        classify_security_group_ownership(public_ssh_finding(), tmp_path, state)
+
+
+def test_duplicate_state_json_keys_are_rejected(tmp_path: Path) -> None:
+    _, state, _ = copy_standalone_fixture(tmp_path)
+    state.write_text(state.read_text().replace('"serial": 1', '"serial": 0, "serial": 1'))
+    with pytest.raises(OwnershipError, match="duplicate"):
+        classify_security_group_ownership(public_ssh_finding(), tmp_path, state)
+
+
+@pytest.mark.parametrize("fixture", ["standalone_public_ssh", "vpc_ingress_public_ssh"])
+@pytest.mark.parametrize("case", ["alias", "duplicate_address", "other_source", "source_group"])
+def test_both_resource_forms_reject_conflicting_evidence(
+    tmp_path: Path, fixture: str, case: str
+) -> None:
+    shutil.copytree(FIXTURES / fixture, tmp_path, dirs_exist_ok=True)
+    state = tmp_path / "terraform-state.json"
+    data = json.loads(state.read_text())
+    resource = data["resources"][0]
+    if case == "alias":
+        resource["provider"] += ".other"
+    elif case == "duplicate_address":
+        data["resources"].append(resource.copy())
+    elif case == "other_source":
+        key = "ipv6_cidr_blocks" if fixture == "standalone_public_ssh" else "cidr_ipv6"
+        resource["instances"][0]["attributes"][key] = ["::/0"] if key.endswith("blocks") else "::/0"
+    else:
+        source = next(tmp_path.glob("*.tf"))
+        source.write_text(
+            source.read_text().replace('"sg-1234567890abcdef0"', '"sg-00000000000000000"')
+        )
+    state.write_text(json.dumps(data))
+    if case == "duplicate_address":
+        with pytest.raises(OwnershipError, match="duplicate managed resource"):
+            classify_security_group_ownership(public_ssh_finding(), tmp_path, state)
+    else:
+        assert classify_security_group_ownership(public_ssh_finding(), tmp_path, state) is None
 
 
 def public_ssh_finding() -> SecurityFinding:
@@ -100,7 +221,7 @@ def test_reference_does_not_prove_security_group_without_state(tmp_path: Path) -
     assert classify_security_group_ownership(public_ssh_finding(), tmp_path) is None
 
 
-def test_reference_is_proven_by_matching_state(tmp_path: Path) -> None:
+def test_reference_with_matching_state_still_requires_plan_resolution(tmp_path: Path) -> None:
     (tmp_path / "main.tf").write_text(
         """resource "aws_security_group" "app" { name = "app" }
 resource "aws_security_group_rule" "ssh_public" {
@@ -115,21 +236,11 @@ resource "aws_security_group_rule" "ssh_public" {
         encoding="utf-8",
     )
     state = tmp_path / "terraform.tfstate"
-    state.write_text(
-        '{"serial":1,"lineage":"reference-fixture","resources":[{"mode":"managed",'
-        '"type":"aws_security_group","name":"app","instances":[{"attributes":'
-        '{"id":"sg-1234567890abcdef0"}}]},{"mode":"managed","type":"aws_security_group_rule",'
-        '"name":"ssh_public","instances":[{"attributes":{"id":"sgr-1234567890abcdef0",'
-        '"security_group_rule_id":"sgr-1234567890abcdef0","security_group_id":"sg-1234567890abcdef0",'
-        '"type":"ingress","from_port":22,"to_port":22,"protocol":"tcp",'
-        '"cidr_blocks":["0.0.0.0/0"]}}]}]}',
-        encoding="utf-8",
-    )
+    shutil.copyfile(FIXTURES / "standalone_public_ssh" / "terraform-state.json", state)
 
     resource = classify_security_group_ownership(public_ssh_finding(), tmp_path, state)
 
-    assert resource is not None
-    assert resource.address == "aws_security_group_rule.ssh_public"
+    assert resource is None
 
 
 def test_standalone_rule_without_state_is_not_proven() -> None:

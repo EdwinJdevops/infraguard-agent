@@ -63,7 +63,11 @@ python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
 Set `INFRAGUARD_TERRAFORM_STATE_PATH` to a matching local raw state JSON file for any trusted
 finding. Automatic standalone remediation is refused without state, and the state must contain
 lineage, serial, one unindexed instance at the exact root resource address, matching rule
-attributes, and the verified AWS security-group-rule ID. Terraform state can contain secrets;
+attributes, and the verified AWS security-group-rule ID. The supported source must use a literal
+security group ID, one CIDR source, and no provider override, lifecycle, or provisioner. Indexed,
+deposed, tainted, aliased, and conflicting-source state is ineligible. Raw state version 4 is
+required; duplicate JSON keys and malformed instances are errors. Roots with `.tf.json` or
+override files are rejected. Terraform state can contain secrets;
 mount it read-only and do not log, commit, or return it. State authenticity, backend lineage, and
 freshness are not established by this local path contract; production intake must acquire and bind
 state through a trusted backend workflow.
@@ -109,11 +113,22 @@ python -m pytest -q
 git diff --check
 ```
 
-CI repeats lint, tests, Terraform fixture formatting, and a container build. HCL parsing is not a
-substitute for `terraform validate` or `terraform plan`; those contextual checks remain a release
-gate. HashiCorp documents that `terraform validate` checks syntax and internal consistency, while
+CI repeats lint, tests, Terraform fixture formatting, a container build, and a separate real AWS
+provider plan suite. To run that suite with Terraform **1.9.8** installed:
+
+```bash
+INFRAGUARD_TERRAFORM_INTEGRATION=1 python -m pytest -q -s tests/integration
+```
+
+It pins AWS provider **6.10.0** and verifies the committed dependency lock file. It uses synthetic
+state, test-only credentials, loopback EC2/STS endpoints, and `-refresh=false`; it never applies.
+It checks the generated patch against the actual provider, including the legacy resource's
+replacement behavior. This is integration evidence for these fixtures, not live AWS evidence or
+a runtime publication gate. HCL parsing alone remains insufficient. HashiCorp documents that
+`terraform validate` checks syntax and internal consistency, while
 `terraform plan` includes the current configuration and state context:
 [Terraform validate](https://developer.hashicorp.com/terraform/cli/commands/validate).
+See the [ownership audit](docs/ownership-audit.md) for reproduced defects and remaining blockers.
 
 ## Repository map
 
