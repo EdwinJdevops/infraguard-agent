@@ -8,12 +8,14 @@ import json
 import os
 import shutil
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from infraguard.patches import write_patch
 from infraguard.runbook import run_public_ssh_remediation
+from tests.factories import verified_provenance
 from tests.test_terraform_ownership import public_ssh_finding
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "terraform"
@@ -59,8 +61,9 @@ def provider(tmp_path_factory):
     ("standalone_public_ssh", ["delete", "create"]),
     ("vpc_ingress_public_ssh", ["update"]),
 ])
+@pytest.mark.parametrize("ipv6", [False, True])
 def test_generated_patch_has_expected_provider_plan(
-    tmp_path: Path, provider, fixture: str, expected_actions: list[str]
+    tmp_path: Path, provider, fixture: str, expected_actions: list[str], ipv6: bool
 ) -> None:
     binary, installed, env, provider_schema = provider
     shutil.copytree(FIXTURES / fixture, tmp_path, dirs_exist_ok=True)
@@ -86,6 +89,21 @@ def test_generated_patch_has_expected_provider_plan(
             arn="arn:aws:ec2:us-east-1:123456789012:security-group-rule/sgr-1234567890abcdef0",
             tags=None, tags_all={},
         )
+    source_key = "cidr_blocks" if fixture == "standalone_public_ssh" else "cidr_ipv4"
+    finding = public_ssh_finding()
+    replacement = "10.20.30.40/32"
+    if ipv6:
+        ipv6_key = "ipv6_cidr_blocks" if source_key == "cidr_blocks" else "cidr_ipv6"
+        source = tmp_path / "security-groups.tf"
+        source.write_text(
+            source.read_text().replace(source_key, ipv6_key).replace("0.0.0.0/0", "::/0")
+        )
+        attrs[source_key] = [] if source_key == "cidr_blocks" else None
+        attrs[ipv6_key] = ["::/0"] if source_key == "cidr_blocks" else "::/0"
+        source_key = ipv6_key
+        finding = replace(finding, rule=replace(finding.rule, source="::/0"),
+                          provenance=verified_provenance(source="::/0"))
+        replacement = "fd00:1234::/64"
     instance["attributes"] = attrs
     state = tmp_path / "terraform.tfstate"
     state.write_text(json.dumps(data))
@@ -108,7 +126,7 @@ def test_generated_patch_has_expected_provider_plan(
     assert len(baseline_changes) == 1, diagnostics
     assert all(c["change"]["actions"] == ["no-op"] for c in baseline_changes), diagnostics
     run = run_public_ssh_remediation(
-        public_ssh_finding(), tmp_path, "10.20.30.40/32", state, {"10.20.30.40/32"}
+        finding, tmp_path, replacement, state, {replacement}
     )
     assert run.can_open_pr and run.patch is not None
     write_patch(run.patch)
@@ -119,13 +137,17 @@ def test_generated_patch_has_expected_provider_plan(
     change = changes[0]
     assert change["address"] == run.patch.resource_address
     assert change["change"]["actions"] == expected_actions
-    key = "cidr_blocks" if fixture == "standalone_public_ssh" else "cidr_ipv4"
-    expected = ["10.20.30.40/32"] if key == "cidr_blocks" else "10.20.30.40/32"
-    assert change["change"]["after"][key] == expected
-    for key in ("security_group_id", "from_port", "to_port"):
+    expected = [replacement] if fixture == "standalone_public_ssh" else replacement
+    assert change["change"]["after"][source_key] == expected
+    protocol_key = "protocol" if fixture == "standalone_public_ssh" else "ip_protocol"
+    preserved = ["security_group_id", "from_port", "to_port", protocol_key]
+    if fixture == "standalone_public_ssh":
+        preserved.append("type")
+    for key in preserved:
         assert change["change"]["before"][key] == change["change"]["after"][key]
     print(json.dumps({
         "fixture": fixture, "terraform": TERRAFORM_VERSION, "aws_provider": PROVIDER_VERSION,
+        "family": "ipv6" if ipv6 else "ipv4",
         "actions": expected_actions, "replacement_paths": change["change"].get("replace_paths", []),
         "plan_json_sha256": digest, "refresh": False, "apply": False, "synthetic_state": True,
     }, sort_keys=True))

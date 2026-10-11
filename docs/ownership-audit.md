@@ -80,7 +80,7 @@ compatibility with every Terraform/provider version.
 ## Evidence and limits
 
 At implementation time, local Ruff, diff checks, Terraform formatting, and 120 unit/component
-tests passed. Two provider integration cases were skipped in the normal local suite.
+tests passed. Four IPv4/IPv6 provider integration cases are skipped in the normal local suite.
 The official Terraform Linux archive SHA256 was verified and `terraform init` authenticated the
 provider signature and generated its checksum lock. Local provider execution failed because this
 workspace denies the Unix socket used by Terraform's plugin protocol. Provider-plan execution
