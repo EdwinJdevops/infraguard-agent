@@ -76,6 +76,8 @@ def test_generated_patch_has_expected_provider_plan(
     # Encode every attribute against the actual provider schema, using only synthetic values.
     attrs = dict.fromkeys(schema["block"]["attributes"])
     attrs.update(instance["attributes"])
+    if "region" in attrs:
+        attrs["region"] = "us-east-1"
     if fixture == "standalone_public_ssh":
         attrs.update(self=False, ipv6_cidr_blocks=[], prefix_list_ids=[],
                      description="", source_security_group_id="")
@@ -97,7 +99,14 @@ def test_generated_patch_has_expected_provider_plan(
         return json.loads(payload), hashlib.sha256(payload.encode()).hexdigest()
 
     before, _ = plan("before.plan")
-    assert all(c["change"]["actions"] == ["no-op"] for c in before.get("resource_changes", []))
+    baseline_changes = before.get("resource_changes", [])
+    diagnostics = [{
+        "address": c["address"], "actions": c["change"]["actions"],
+        "changed_attributes": [k for k, v in (c["change"].get("before") or {}).items()
+                               if v != (c["change"].get("after") or {}).get(k)],
+    } for c in baseline_changes]
+    assert len(baseline_changes) == 1, diagnostics
+    assert all(c["change"]["actions"] == ["no-op"] for c in baseline_changes), diagnostics
     run = run_public_ssh_remediation(
         public_ssh_finding(), tmp_path, "10.20.30.40/32", state, {"10.20.30.40/32"}
     )
