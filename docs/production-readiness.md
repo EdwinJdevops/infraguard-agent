@@ -48,6 +48,7 @@ evidence; historical run links are snapshots, not substitutes for current checks
 | P0 | Verified finding provenance | Security Hub event and read-only AWS lookup bind account, region, SG, rule, request IDs, and times | Core implemented and locally tested; runtime AWS/SQS/STS composition and real-account evidence open |
 | P0 | Immutable repository input | Ephemeral clone of allowlisted repository at exact SHA; source digest recorded | Partial: Git-object capture and digest binding implemented; authorized acquisition/controller and immutable executor remain open |
 | P0 | Contextual Terraform validation | Isolated `fmt`, `init -backend=false`, `validate`, and policy-checked plan JSON attached as evidence | Partial: internal pinned JSON policy and bound manifest implemented; sandbox executor and authenticated production state/plan evidence remain open |
+| P0 | Legacy replacement semantics | Actual provider plan proves all source semantics and explicit disruption authorization | Blocked: pinned legacy replacement fixtures leave source_security_group_id unknown and the new gate rejects them; conditional review branch has only synthetic unit evidence |
 | P0 | Safe publisher boundary | Dedicated GitHub App, short-lived installation token, base-SHA recheck, no force push, no direct main write | Open |
 | P0 | Idempotency and concurrency | Durable key/lock prevents duplicate or conflicting PRs and records retries | Open |
 | P0 | Post-deployment verification | Independent AWS check proves public rule removal and escalates regression | Open |

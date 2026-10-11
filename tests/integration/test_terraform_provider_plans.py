@@ -259,11 +259,20 @@ def test_generated_patch_has_expected_provider_plan(
         )
     )
     expected_disposition = (
-        PlanDisposition.REPLACEMENT_REVIEW
+        PlanDisposition.REJECT
         if fixture == "standalone_public_ssh"
         else PlanDisposition.UPDATE_CANDIDATE
     )
     assert result.policy.disposition == expected_disposition, result.policy
+    if fixture == "standalone_public_ssh":
+        # The pinned provider leaves a second source channel unknown. Production replacement
+        # support remains blocked; do not permit this just to obtain passing integration.
+        assert result.policy.reason == "unknown_rule_semantics"
+        assert (
+            after["resource_changes"][0]["change"]["after_unknown"]["source_security_group_id"]
+            is True
+        )
+        assert after["resource_changes"][0]["change"]["before"]["source_security_group_id"] == ""
     changes = [c for c in after["resource_changes"] if c["change"]["actions"] != ["no-op"]]
     assert len(changes) == 1
     change = changes[0]
@@ -291,14 +300,16 @@ def test_generated_patch_has_expected_provider_plan(
                 "apply": False,
                 "synthetic_state": True,
                 "plan_policy": result.policy.disposition.value,
+                "policy_reason": result.policy.reason,
                 "input_manifest_sha256": prepared.manifest_sha256,
             },
             sort_keys=True,
         )
     )
-    # Mutate actual provider JSON; the gate must reject, without leaking the plan.
-    after["resource_changes"][0]["change"]["after"]["from_port"] = 23
-    tampered = replace(envelope, content=json.dumps(after).encode())
-    assert evaluate_bound_plan(prepared, tampered, now=completed_at).policy.disposition == (
-        PlanDisposition.REJECT
-    )
+    if fixture == "vpc_ingress_public_ssh":
+        # Attack an accepted actual plan, rather than testing an already-rejected plan again.
+        after["resource_changes"][0]["change"]["after"]["from_port"] = 23
+        tampered = replace(envelope, content=json.dumps(after).encode())
+        rejected = evaluate_bound_plan(prepared, tampered, now=completed_at)
+        assert rejected.policy.disposition == PlanDisposition.REJECT
+        assert rejected.policy.reason == "unexpected_target_attribute_change"

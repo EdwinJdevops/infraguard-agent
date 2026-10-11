@@ -80,6 +80,15 @@ An update candidate still needs human review and production release gates. Repla
 an escalation requiring an operator to assess loss of access and the replacement interval.
 No result is an automatic disruption authorization or proof that public access is removed in AWS.
 
+**Real-provider limitation:** AWS provider 6.10.0 marks `source_security_group_id`
+optional/computed. Both actual legacy CIDR replacement fixtures leave it unknown, so the gate
+rejects them as `unknown_rule_semantics`. Diagnostics also show differences in description, unused
+CIDR-family and prefix-list attributes; their normalization semantics have not been accepted.
+The conditional replacement-review branch is tested with synthetic fully known source semantics;
+there is no accepted real-provider legacy replacement evidence at this checkpoint. Do not relax
+unknown-source checks or describe that branch as production support. Resolving this needs a separate
+provider-semantic/disruption policy review, with adversarial and actual-provider evidence.
+
 ## Verification evidence and limits
 
 Unit tests attack metadata mismatches, old/future evidence, prepared artifact changes, stale plan
@@ -88,6 +97,10 @@ unknown semantics, outputs/checks, modules/aliases/imports, Git symlinks and mal
 The opt-in integration suite captures synthetic source in real Git commits, produces real
 Terraform/provider plans, passes their JSON through this gate and rejects a mutated port.
 It covers both standalone resource types and IPv4/IPv6, with a strict no-op baseline.
+Both newer ingress plans must yield update candidates; both legacy plans must exhibit the specific
+unknown source-group field and be rejected. Provider action assertions still independently prove
+the legacy delete/create and newer update behavior. Changing an expected disposition here records
+an observed fail-closed compatibility limit; it does not authorize a previously rejected plan.
 
 CI uses the committed checksum lock and test-only credentials with loopback AWS endpoints,
 `-refresh=false`, and no apply. This establishes the pinned fixture behavior only. It does not
@@ -131,3 +144,5 @@ post-deployment transitions remain unimplemented release blockers.
   JSON can expose sensitive values in plaintext.
 - [Terraform 1.9.8 JSON plan implementation](https://github.com/hashicorp/terraform/blob/v1.9.8/internal/command/jsonplan/plan.go):
   the pinned format version and plan completion/error/timestamp fields.
+- [AWS provider 6.10.0 legacy rule implementation](https://github.com/hashicorp/terraform-provider-aws/blob/v6.10.0/internal/service/ec2/vpc_security_group_rule.go):
+  the optional/computed source-group field, source conflicts and replacement attributes.

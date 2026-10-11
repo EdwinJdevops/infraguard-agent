@@ -45,7 +45,9 @@ cannot carry trusted provenance, so direct JSON claims return `manual_review` an
 
 The internal [bound analysis contract](docs/bound-analysis.md) adds plan evidence gates. It
 accepts only a source-only update as an `update_candidate`; a legacy delete/create plan becomes
-`replacement_review`. Neither result authorizes publication. Coordinator-supplied expectations
+`replacement_review` only if non-ID source semantics are known and unchanged. Actual pinned legacy
+fixtures leave `source_security_group_id` unknown and are rejected; production legacy replacement
+support remains blocked. Neither result authorizes publication. Coordinator-supplied expectations
 and hashes are integrity checks, not authentication of repository, backend, workspace, or executor.
 
 ## Quick start

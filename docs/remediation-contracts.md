@@ -122,6 +122,12 @@ See [bound-analysis.md](bound-analysis.md) for the full input, result, and trust
 | `replacement_review` | Only the approved legacy source change is represented, but delete/create requires disruption review; no automatic authorization |
 | `reject` | Integrity, age, structure, semantics, scope, check, or toolchain gate failed |
 
+Real AWS-provider 6.10.0 legacy CIDR replacement fixtures leave the optional/computed
+`source_security_group_id` unknown. The policy rejects them as `unknown_rule_semantics`; it does
+not ignore a second source channel to achieve a passing integration result. The conditional
+`replacement_review` branch is unit-tested using synthetic fully known source semantics, not
+established as an accepted real-provider path. Production legacy replacement support remains blocked.
+
 The input manifest binds repository identity and commit assertion, original/patched source digests,
 provider lock, raw state digest/lineage/serial/location assertion, finding, patch, operator policy,
 tool versions, preparation and expiry. The result includes manifest/plan hashes, bounded reason,
