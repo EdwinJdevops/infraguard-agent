@@ -189,6 +189,12 @@ def test_only_narrow_rule_changes_are_review_candidates(fixture, expected):
         ("policy_revision", ""),
         ("allowed_replacement_sources", ()),
         ("allowed_replacement_sources", ("10.0.0.0/8",)),
+        ("repository", None),
+        ("source_sha256", None),
+        ("backend_alias", ""),
+        ("workspace", ""),
+        ("state_lineage", ""),
+        ("allowed_replacement_sources", [REPLACEMENT]),
     ],
 )
 def test_coordinator_mismatches_reject_preparation(key, value):
@@ -321,6 +327,9 @@ def test_plan_envelope_and_completion_deadline_reject(mutation):
         "timestamp_old",
         "timestamp_future",
         "timestamp_naive",
+        "hidden_config",
+        "duplicate_config",
+        "output_values",
     ],
 )
 def test_unsafe_or_inconsistent_plans_reject(mutation):
@@ -397,6 +406,12 @@ def test_unsafe_or_inconsistent_plans_reject(mutation):
         config["expressions"][key]["constant_value"] = "wrong"
     elif mutation == "configured_count":
         config["count_expression"] = {"constant_value": 1}
+    elif mutation == "hidden_config":
+        plan["configuration"]["root_module"]["resources"].append({"address": "aws_instance.hidden"})
+    elif mutation == "duplicate_config":
+        plan["configuration"]["root_module"]["resources"].append(copy.deepcopy(config))
+    elif mutation == "output_values":
+        plan["planned_values"]["outputs"] = {"hidden": {"value": "change"}}
     elif mutation == "timestamp_missing":
         del plan["timestamp"]
     else:

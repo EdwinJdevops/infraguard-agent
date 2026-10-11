@@ -78,15 +78,7 @@ def capture_repository_snapshot(
 ) -> RepositorySnapshot:
     if not re.fullmatch(r"[0-9a-f]{40}", commit_sha):
         raise EvidenceError("invalid_commit_sha")
-    root = PurePosixPath(terraform_directory)
-    if (
-        not terraform_directory
-        or root.is_absolute()
-        or ".." in root.parts
-        or "\\" in terraform_directory
-        or str(root) != terraform_directory
-    ):
-        raise EvidenceError("invalid_terraform_directory")
+    root = validate_terraform_directory(terraform_directory)
     env = {
         "PATH": os.environ.get("PATH", ""),
         "GIT_CONFIG_NOSYSTEM": "1",
@@ -134,3 +126,18 @@ def capture_repository_snapshot(
     snapshot = RepositorySnapshot(repository, commit_sha, terraform_directory, tuple(files))
     validate_files(snapshot.files)
     return snapshot
+
+
+def validate_terraform_directory(terraform_directory: str) -> PurePosixPath:
+    if not isinstance(terraform_directory, str):
+        raise EvidenceError("invalid_terraform_directory")
+    root = PurePosixPath(terraform_directory)
+    if (
+        not terraform_directory
+        or root.is_absolute()
+        or ".." in root.parts
+        or "\\" in terraform_directory
+        or str(root) != terraform_directory
+    ):
+        raise EvidenceError("invalid_terraform_directory")
+    return root

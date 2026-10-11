@@ -20,7 +20,7 @@ import hcl2
 
 from infraguard.json_evidence import EvidenceError, read_json_object
 from infraguard.models import SecurityFinding, TerraformPatch
-from infraguard.repository import RepositorySnapshot, SourceFile
+from infraguard.repository import RepositorySnapshot, SourceFile, validate_terraform_directory
 from infraguard.runbook import run_public_ssh_remediation
 from infraguard.terraform_plan import (
     AWS_PROVIDER,
@@ -129,6 +129,28 @@ def prepare_public_ssh_analysis(
     now: datetime,
 ) -> PreparedAnalysis:
     _require(_aware(now) and _aware(state.collected_at), "timezone_required")
+    validate_terraform_directory(expectations.terraform_directory)
+    _require(
+        all(
+            isinstance(value, str) and 0 < len(value) <= 128
+            for value in (
+                expectations.repository,
+                expectations.commit_sha,
+                expectations.backend_alias,
+                expectations.workspace,
+                expectations.state_lineage,
+                expectations.policy_revision,
+                expectations.source_sha256,
+                expectations.lock_sha256,
+                expectations.state_sha256,
+            )
+        ),
+        "invalid_coordinator_expectations",
+    )
+    _require(
+        isinstance(state.content, bytes) and len(state.content) <= 16 * 1024 * 1024,
+        "artifact_size_or_type_invalid",
+    )
     _require(
         re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", expectations.repository) is not None
         and re.fullmatch(r"[0-9a-f]{40}", expectations.commit_sha) is not None,
@@ -146,7 +168,9 @@ def prepare_public_ssh_analysis(
         "invalid_state_expectations",
     )
     _require(
-        bool(expectations.policy_revision) and bool(expectations.allowed_replacement_sources),
+        isinstance(expectations.allowed_replacement_sources, tuple)
+        and bool(expectations.allowed_replacement_sources)
+        and all(isinstance(source, str) for source in expectations.allowed_replacement_sources),
         "missing_operator_policy",
     )
     _require(

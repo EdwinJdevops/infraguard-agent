@@ -188,6 +188,13 @@ def _evaluate(
     _require(not configuration.get("module_calls"), "unsupported_plan_module")
     configured = configuration.get("resources")
     _require(isinstance(configured, list), "invalid_plan_configuration")
+    configured_addresses = [_object(r).get("address") for r in configured]
+    _require(
+        all(isinstance(a, str) for a in configured_addresses)
+        and len(set(configured_addresses)) == len(configured_addresses)
+        and set(configured_addresses) == addresses,
+        "plan_configuration_scope_mismatch",
+    )
     matches = [r for r in configured if _object(r).get("address") == patch.resource_address]
     _require(len(matches) == 1, "configured_target_missing_or_duplicate")
     configured_target = matches[0]

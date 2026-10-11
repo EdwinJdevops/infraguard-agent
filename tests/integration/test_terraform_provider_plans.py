@@ -239,12 +239,31 @@ def test_generated_patch_has_expected_provider_plan(
         prepared.manifest_sha256, completed_at, TERRAFORM_VERSION, PROVIDER_VERSION, payload
     )
     result = evaluate_bound_plan(prepared, envelope, now=completed_at)
+    # Bounded synthetic diagnostics identify policy incompatibility without dumping plan values.
+    print(
+        json.dumps(
+            {
+                "fixture": fixture,
+                "family": "ipv6" if ipv6 else "ipv4",
+                "policy_reason": result.policy.reason,
+                "unknown_attribute_names": sorted(
+                    after["resource_changes"][0]["change"].get("after_unknown", {}).keys()
+                ),
+                "changed_attribute_names": sorted(
+                    k
+                    for k, v in after["resource_changes"][0]["change"]["before"].items()
+                    if v != after["resource_changes"][0]["change"]["after"].get(k)
+                ),
+            },
+            sort_keys=True,
+        )
+    )
     expected_disposition = (
         PlanDisposition.REPLACEMENT_REVIEW
         if fixture == "standalone_public_ssh"
         else PlanDisposition.UPDATE_CANDIDATE
     )
-    assert result.policy.disposition == expected_disposition, result.to_evidence()
+    assert result.policy.disposition == expected_disposition, result.policy
     changes = [c for c in after["resource_changes"] if c["change"]["actions"] != ["no-op"]]
     assert len(changes) == 1
     change = changes[0]
