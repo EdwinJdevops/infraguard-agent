@@ -83,8 +83,17 @@ At implementation time, local Ruff, diff checks, Terraform formatting, and 120 u
 tests passed. Four IPv4/IPv6 provider integration cases are skipped in the normal local suite.
 The official Terraform Linux archive SHA256 was verified and `terraform init` authenticated the
 provider signature and generated its checksum lock. Local provider execution failed because this
-workspace denies the Unix socket used by Terraform's plugin protocol. Provider-plan execution
-must therefore be confirmed by the dedicated GitHub Actions job on the published head.
+workspace denies the Unix socket used by Terraform's plugin protocol.
+
+GitHub Actions [run 38144646302](https://github.com/EdwinJdevops/infraguard-agent/actions/runs/38144646302)
+subsequently passed all four jobs on implementation head
+`58e3cc3ae63bd4afc4143db343e483b2d42f2307`: Python lint/120 unit tests, Terraform formatting,
+container build, and four real-provider IPv4/IPv6 plan cases. Both legacy-family plans required
+delete/create and both newer ingress-family plans required update.
+The first provider runs correctly rejected inaccurate synthetic baseline state; the harness was
+corrected to include the provider's region and preserve absent optional tags as null. The baseline
+no-op assertion was retained. No customer or live AWS state was used.
+This run is an implementation checkpoint; the latest PR head must have its own passing checks.
 
 This is fixture integration, not an operational remediation or a production safety gate.
 It does not authenticate a customer backend, verify a workspace, refresh live state, run a

@@ -26,7 +26,7 @@ as superseded by PR #2.
 | Patch | Targeted IPv4/IPv6 standalone rule source replacement | Implemented for documented subset |
 | Validation | Before/after HCL and target semantics plus exact diff-shape check | Implemented, not Terraform-contextual |
 | API | Strict schema, API-key check, readiness, request IDs, sanitized paths/errors, no publication | Implemented baseline |
-| Tests | 120 unit/component tests; four opt-in real-provider IPv4/IPv6 integration cases; see ownership audit | Local unit tests passed; provider-plan execution awaits current CI evidence |
+| Tests | 120 unit/component tests; four opt-in real-provider IPv4/IPv6 integration cases; see ownership audit | CI passed at implementation head 58e3cc3 in run 38144646302; latest reviewed head must remain green |
 | Lint | Ruff over the repository | Passed locally; the current stacked-PR merge ref must also be green |
 | Container | Non-root image definition and CI build job | PR merge-ref build passed in GitHub Actions; local Docker was unavailable |
 | Kubernetes | Restricted pod settings and deny-egress policy | YAML parses; no local schema/cluster/CNI verification |
@@ -56,7 +56,7 @@ evidence; historical run links are snapshots, not substitutes for current checks
 | P1 | Production identity and authorization | TLS, workload/OIDC identity, tenant/repository authorization, rotation/revocation | Open |
 | P1 | Distributed abuse controls | Shared rate limits, quotas, request-size/time limits, queue backpressure, dead-letter policy | Open |
 | P1 | Supply-chain release | Digest-pinned base image, lock/hashes, dependency and image scan, SBOM, signature, provenance | Open |
-| P1 | Integration resilience | Real Terraform CLI fixtures, modules/indexed resources policy, property/fuzz tests, GitHub API contract tests | Pinned offline provider-plan suite added; execution evidence pending; broader resilience open |
+| P1 | Integration resilience | Real Terraform CLI fixtures, modules/indexed resources policy, property/fuzz tests, GitHub API contract tests | Four pinned offline provider-plan cases passed in CI; broader resilience open |
 | P1 | Observability and SLOs | Structured metrics/logs/traces, dashboards, alerts, SLO/error budget, runbooks exercised | Open |
 | P1 | Recovery | Backup/restore and workflow replay tested; publisher rollback/PR closure procedure exercised | Open |
 | P2 | Preferred no-SSH remediation | Detect Session Manager readiness and propose removal of SSH ingress where policy permits | Research/design |
