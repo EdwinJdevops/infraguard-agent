@@ -33,13 +33,22 @@ public SSH source.
 | Ownership proof | Automatic standalone remediation requires one root-module `.tf` declaration, one matching state instance, exact security-group/rule semantics, and the verified AWS rule ID in state; source text alone is insufficient |
 | Replacement policy | Exact deployment allowlist entry that is RFC1918 IPv4 or IPv6 ULA |
 | Patch validation | Targeted one-line source change, HCL parse, target-rule semantic checks |
+| Bound analysis core | Git-object snapshot at an expected SHA; source/state/lock/finding manifest; input and completion freshness; conservative Terraform JSON plan policy |
+| Production analysis worker | Not implemented; no sandbox executor or authenticated backend acquisition |
 | Publication | Not implemented; API always returns `publication: not_attempted` |
 | Infrastructure mutation | Never performed |
 
-`decision: auto_pr` means the proposal is eligible for a future publisher. It does not mean a
+`decision: auto_pr` means the local planning gates passed. It does not mean a
 branch or pull request exists. Only `can_open_pr: true` indicates that decision, patch, validation,
 and evidence are all present in the returned planning result. The current HTTP request schema
 cannot carry trusted provenance, so direct JSON claims return `manual_review` and no patch.
+
+The internal [bound analysis contract](docs/bound-analysis.md) adds plan evidence gates. It
+accepts only a source-only update as an `update_candidate`; a legacy delete/create plan becomes
+`replacement_review` only if non-ID source semantics are known and unchanged. Actual pinned legacy
+fixtures leave `source_security_group_id` unknown and are rejected; production legacy replacement
+support remains blocked. Neither result authorizes publication. Coordinator-supplied expectations
+and hashes are integrity checks, not authentication of repository, backend, workspace, or executor.
 
 ## Quick start
 
@@ -124,7 +133,9 @@ It pins AWS provider **6.10.0** and verifies the committed dependency lock file.
 state, test-only credentials, loopback EC2/STS endpoints, and `-refresh=false`; it never applies.
 It checks the generated patch against the actual provider, including the legacy resource's
 replacement behavior. This is integration evidence for these fixtures, not live AWS evidence or
-a runtime publication gate. HCL parsing alone remains insufficient. HashiCorp documents that
+production execution evidence. The suite also evaluates the bound plan policy and rejects
+tampered provider JSON. The library gate is not connected to the API or a runtime worker.
+HCL parsing alone remains insufficient. HashiCorp documents that
 `terraform validate` checks syntax and internal consistency, while
 `terraform plan` includes the current configuration and state context:
 [Terraform validate](https://developer.hashicorp.com/terraform/cli/commands/validate).

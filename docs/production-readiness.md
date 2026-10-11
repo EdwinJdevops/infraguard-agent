@@ -22,11 +22,11 @@ as superseded by PR #2.
 | Area | Evidence | Assessment |
 |---|---|---|
 | Deterministic decision core | Explicit `auto_pr`, `manual_review`, and `reject` paths | Implemented |
-| Ownership | Root-module static HCL plus required state/rule-ID correlation for standalone auto-PR eligibility; ambiguity and parse failures stop automation | Implemented for documented subset; state origin/freshness and Terraform plan binding remain open |
+| Ownership | Root-module static HCL plus required state/rule-ID correlation for local patch eligibility; ambiguity and parse failures stop automation | Implemented for documented subset; bound-analysis core adds age/input/plan checks but authenticated acquisition remains open |
 | Patch | Targeted IPv4/IPv6 standalone rule source replacement | Implemented for documented subset |
 | Validation | Before/after HCL and target semantics plus exact diff-shape check | Implemented, not Terraform-contextual |
 | API | Strict schema, API-key check, readiness, request IDs, sanitized paths/errors, no publication | Implemented baseline |
-| Tests | 120 unit/component tests; four opt-in real-provider IPv4/IPv6 integration cases; see ownership audit | CI passed at implementation head 58e3cc3 in run 38144646302; latest reviewed head must remain green |
+| Tests | Ownership baseline: 120 unit/component tests and four opt-in real-provider cases. Bound analysis adds adversarial integrity/freshness/plan tests and evaluates actual provider JSON | Baseline CI run 38144902183 passed at 1723788; this follow-on requires its own green CI |
 | Lint | Ruff over the repository | Passed locally; the current stacked-PR merge ref must also be green |
 | Container | Non-root image definition and CI build job | PR merge-ref build passed in GitHub Actions; local Docker was unavailable |
 | Kubernetes | Restricted pod settings and deny-egress policy | YAML parses; no local schema/cluster/CNI verification |
@@ -46,8 +46,9 @@ evidence; historical run links are snapshots, not substitutes for current checks
 | P0 | Close/supersede unsafe PR #1 | PR records why additive rules do not remediate exposure | Completed: closed unmerged in favor of PR #2 |
 | P0 | Protected branch and mandatory CI | Ruleset requires tests, container build, review, resolved conversations, and blocks force push | Main protection verified on 2026-10-11; independent approval remains absent; new provider job is not yet a required ruleset context |
 | P0 | Verified finding provenance | Security Hub event and read-only AWS lookup bind account, region, SG, rule, request IDs, and times | Core implemented and locally tested; runtime AWS/SQS/STS composition and real-account evidence open |
-| P0 | Immutable repository input | Ephemeral clone of allowlisted repository at exact SHA; source digest recorded | Open |
-| P0 | Contextual Terraform validation | Isolated `fmt`, `init -backend=false`, `validate`, and policy-checked plan JSON attached as evidence | Open |
+| P0 | Immutable repository input | Ephemeral clone of allowlisted repository at exact SHA; source digest recorded | Partial: Git-object capture and digest binding implemented; authorized acquisition/controller and immutable executor remain open |
+| P0 | Contextual Terraform validation | Isolated `fmt`, `init -backend=false`, `validate`, and policy-checked plan JSON attached as evidence | Partial: internal pinned JSON policy and bound manifest implemented; sandbox executor and authenticated production state/plan evidence remain open |
+| P0 | Legacy replacement semantics | Actual provider plan proves all source semantics and explicit disruption authorization | Blocked: pinned legacy replacement fixtures leave source_security_group_id unknown and the new gate rejects them; conditional review branch has only synthetic unit evidence |
 | P0 | Safe publisher boundary | Dedicated GitHub App, short-lived installation token, base-SHA recheck, no force push, no direct main write | Open |
 | P0 | Idempotency and concurrency | Durable key/lock prevents duplicate or conflicting PRs and records retries | Open |
 | P0 | Post-deployment verification | Independent AWS check proves public rule removal and escalates regression | Open |

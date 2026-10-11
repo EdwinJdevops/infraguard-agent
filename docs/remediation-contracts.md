@@ -40,8 +40,9 @@ Terraform because it has no independent AWS provenance. The `auto_pr` contract a
 callers that supply a provenance-bound finding; no such runtime worker is currently shipped.
 
 `can_open_pr` is stricter than the decision field: it is true only when an `auto_pr` decision also
-has a patch, passing validation, JSON evidence, and PR Markdown. A future publisher must require
-`can_open_pr`, rerun freshness checks, and then record its own publication result.
+has a patch, passing validation, JSON evidence, and PR Markdown. It is a local-stage result.
+A future publisher also needs bound plan evidence, authenticated input acquisition, authorization,
+freshness and base-SHA rechecks, and its own recorded publication result.
 
 ## Ownership contract
 
@@ -107,7 +108,32 @@ It asserts a no-op baseline and a single planned resource change after patching.
 `aws_security_group_rule` CIDR attributes are `ForceNew` in that provider: the expected plan is
 delete/create, not an in-place edit. The newer ingress resource permits a source update.
 Fixture checks do not authorize production replacement. A runtime plan gate must reject unrelated
-changes and require an explicit disruption policy for replacements; it is not implemented here.
+changes and require an explicit disruption policy for replacements.
+
+## Bound analysis contract
+
+The internal functions in `infraguard/analysis.py` prepare a candidate from immutable source bytes
+and evaluate an executor-supplied plan. They are not HTTP endpoints or an executor.
+See [bound-analysis.md](bound-analysis.md) for the full input, result, and trust contracts.
+
+| Result | Exact meaning |
+|---|---|
+| `update_candidate` | Pinned-format plan passes the narrow source-only update policy; human review and production gates remain |
+| `replacement_review` | Only the approved legacy source change is represented, but delete/create requires disruption review; no automatic authorization |
+| `reject` | Integrity, age, structure, semantics, scope, check, or toolchain gate failed |
+
+Real AWS-provider 6.10.0 legacy CIDR replacement fixtures leave the optional/computed
+`source_security_group_id` unknown. The policy rejects them as `unknown_rule_semantics`; it does
+not ignore a second source channel to achieve a passing integration result. The conditional
+`replacement_review` branch is unit-tested using synthetic fully known source semantics, not
+established as an accepted real-provider path. Production legacy replacement support remains blocked.
+
+The input manifest binds repository identity and commit assertion, original/patched source digests,
+provider lock, raw state digest/lineage/serial/location assertion, finding, patch, operator policy,
+tool versions, preparation and expiry. The result includes manifest/plan hashes, bounded reason,
+actions, `publication: not_attempted`, and `state_origin_attested: false`.
+Expected metadata must be independently supplied by a trusted coordinator, never accepted from an
+HTTP claimant or calculated solely from that claimant's artifacts. That coordinator is not shipped.
 
 ## API operational contract
 

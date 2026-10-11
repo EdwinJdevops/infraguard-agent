@@ -3,18 +3,27 @@
 Opt in with INFRAGUARD_TERRAFORM_INTEGRATION=1. CI runs this as a separate required-to-pass job.
 These tests use synthetic state and do not establish live AWS behavior or state authenticity.
 """
+
 import hashlib
 import json
 import os
 import shutil
 import subprocess
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
-from infraguard.patches import write_patch
-from infraguard.runbook import run_public_ssh_remediation
+from infraguard.analysis import (
+    AnalysisExpectations,
+    PlanArtifact,
+    StateSnapshot,
+    evaluate_bound_plan,
+    prepare_public_ssh_analysis,
+)
+from infraguard.repository import capture_repository_snapshot
+from infraguard.terraform_plan import PlanDisposition
 from tests.factories import verified_provenance
 from tests.test_terraform_ownership import public_ssh_finding
 
@@ -29,7 +38,12 @@ pytestmark = pytest.mark.skipif(
 
 def tf(binary: str, root: Path, env: dict[str, str], *args: str) -> str:
     result = subprocess.run(
-        [binary, *args], cwd=root, env=env, text=True, capture_output=True, timeout=180,
+        [binary, *args],
+        cwd=root,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=180,
         check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
@@ -41,26 +55,43 @@ def provider(tmp_path_factory):
     binary = shutil.which("terraform")
     assert binary is not None, "integration enabled but Terraform is not installed"
     root = tmp_path_factory.mktemp("offline-provider")
-    shutil.copytree(FIXTURES / "offline_provider", root, dirs_exist_ok=True,
-                    ignore=shutil.ignore_patterns(".terraform"))
+    shutil.copytree(
+        FIXTURES / "offline_provider",
+        root,
+        dirs_exist_ok=True,
+        ignore=shutil.ignore_patterns(".terraform"),
+    )
     env = {
-        "PATH": os.environ["PATH"], "HOME": str(root), "TF_IN_AUTOMATION": "1",
+        "PATH": os.environ["PATH"],
+        "HOME": str(root),
+        "TF_IN_AUTOMATION": "1",
         "AWS_EC2_METADATA_DISABLED": "true",
         "AWS_SHARED_CREDENTIALS_FILE": str(root / "no-credentials"),
         "AWS_CONFIG_FILE": str(root / "no-config"),
     }
     version = json.loads(tf(binary, root, env, "version", "-json"))
     assert version["terraform_version"] == TERRAFORM_VERSION
-    tf(binary, root, env, "init", "-backend=false", "-input=false",
-       "-lockfile=readonly", "-no-color")
+    tf(
+        binary,
+        root,
+        env,
+        "init",
+        "-backend=false",
+        "-input=false",
+        "-lockfile=readonly",
+        "-no-color",
+    )
     schema = json.loads(tf(binary, root, env, "providers", "schema", "-json"))
     return binary, root, env, schema["provider_schemas"]["registry.terraform.io/hashicorp/aws"]
 
 
-@pytest.mark.parametrize("fixture,expected_actions", [
-    ("standalone_public_ssh", ["delete", "create"]),
-    ("vpc_ingress_public_ssh", ["update"]),
-])
+@pytest.mark.parametrize(
+    "fixture,expected_actions",
+    [
+        ("standalone_public_ssh", ["delete", "create"]),
+        ("vpc_ingress_public_ssh", ["update"]),
+    ],
+)
 @pytest.mark.parametrize("ipv6", [False, True])
 def test_generated_patch_has_expected_provider_plan(
     tmp_path: Path, provider, fixture: str, expected_actions: list[str], ipv6: bool
@@ -82,12 +113,18 @@ def test_generated_patch_has_expected_provider_plan(
     if "region" in attrs:
         attrs["region"] = "us-east-1"
     if fixture == "standalone_public_ssh":
-        attrs.update(self=False, ipv6_cidr_blocks=[], prefix_list_ids=[],
-                     description="", source_security_group_id="")
+        attrs.update(
+            self=False,
+            ipv6_cidr_blocks=[],
+            prefix_list_ids=[],
+            description="",
+            source_security_group_id="",
+        )
     else:
         attrs.update(
             arn="arn:aws:ec2:us-east-1:123456789012:security-group-rule/sgr-1234567890abcdef0",
-            tags=None, tags_all={},
+            tags=None,
+            tags_all={},
         )
     source_key = "cidr_blocks" if fixture == "standalone_public_ssh" else "cidr_ipv4"
     finding = public_ssh_finding()
@@ -101,41 +138,145 @@ def test_generated_patch_has_expected_provider_plan(
         attrs[source_key] = [] if source_key == "cidr_blocks" else None
         attrs[ipv6_key] = ["::/0"] if source_key == "cidr_blocks" else "::/0"
         source_key = ipv6_key
-        finding = replace(finding, rule=replace(finding.rule, source="::/0"),
-                          provenance=verified_provenance(source="::/0"))
+        finding = replace(
+            finding,
+            rule=replace(finding.rule, source="::/0"),
+            provenance=verified_provenance(source="::/0"),
+        )
         replacement = "fd00:1234::/64"
     instance["attributes"] = attrs
     state = tmp_path / "terraform.tfstate"
     state.write_text(json.dumps(data))
     tf(binary, tmp_path, env, "validate", "-no-color")
 
-    def plan(name: str) -> tuple[dict, str]:
+    def plan(name: str) -> tuple[dict, bytes]:
         path = tmp_path / name
-        tf(binary, tmp_path, env, "plan", "-refresh=false", "-input=false", "-no-color",
-           f"-out={path}")
+        tf(
+            binary,
+            tmp_path,
+            env,
+            "plan",
+            "-refresh=false",
+            "-input=false",
+            "-no-color",
+            f"-out={path}",
+        )
         payload = tf(binary, tmp_path, env, "show", "-json", str(path))
-        return json.loads(payload), hashlib.sha256(payload.encode()).hexdigest()
+        return json.loads(payload), payload.encode()
 
     before, _ = plan("before.plan")
     baseline_changes = before.get("resource_changes", [])
-    diagnostics = [{
-        "address": c["address"], "actions": c["change"]["actions"],
-        "changed_attributes": [k for k, v in (c["change"].get("before") or {}).items()
-                               if v != (c["change"].get("after") or {}).get(k)],
-    } for c in baseline_changes]
+    diagnostics = [
+        {
+            "address": c["address"],
+            "actions": c["change"]["actions"],
+            "changed_attributes": [
+                k
+                for k, v in (c["change"].get("before") or {}).items()
+                if v != (c["change"].get("after") or {}).get(k)
+            ],
+        }
+        for c in baseline_changes
+    ]
     assert len(baseline_changes) == 1, diagnostics
     assert all(c["change"]["actions"] == ["no-op"] for c in baseline_changes), diagnostics
-    run = run_public_ssh_remediation(
-        finding, tmp_path, replacement, state, {replacement}
+
+    # Bind the candidate to real Git objects, not files that can change after review.
+    def git(*args: str) -> str:
+        result = subprocess.run(
+            ["git", *args], cwd=tmp_path, text=True, capture_output=True, timeout=15, check=True
+        )
+        return result.stdout.strip()
+
+    git("init")
+    git("add", "security-groups.tf", "provider.tf", ".terraform.lock.hcl")
+    git(
+        "-c",
+        "user.name=InfraGuard Test",
+        "-c",
+        "user.email=test@example.invalid",
+        "commit",
+        "-m",
+        "synthetic provider fixture",
     )
-    assert run.can_open_pr and run.patch is not None
-    write_patch(run.patch)
+    snapshot = capture_repository_snapshot(
+        tmp_path, repository="example/synthetic", commit_sha=git("rev-parse", "HEAD")
+    )
+    now = datetime.now(UTC)
+    finding = replace(
+        finding, provenance=replace(finding.provenance, observed_at=now, verified_at=now)
+    )
+    state_input = StateSnapshot("synthetic-offline", "default", now, state.read_bytes())
+    expectations = AnalysisExpectations(
+        snapshot.repository,
+        snapshot.commit_sha,
+        ".",
+        snapshot.source_digest(),
+        hashlib.sha256((tmp_path / ".terraform.lock.hcl").read_bytes()).hexdigest(),
+        state_input.backend_alias,
+        state_input.workspace,
+        hashlib.sha256(state_input.content).hexdigest(),
+        data["lineage"],
+        data["serial"],
+        (replacement,),
+        "offline-test-v1",
+    )
+    prepared = prepare_public_ssh_analysis(
+        snapshot=snapshot,
+        state=state_input,
+        finding=finding,
+        expectations=expectations,
+        replacement_source=replacement,
+        now=now,
+    )
+    for file in prepared.source_files_after:
+        (tmp_path / file.path).write_bytes(file.content)
     tf(binary, tmp_path, env, "validate", "-no-color")
-    after, digest = plan("after.plan")
+    after, payload = plan("after.plan")
+    digest = hashlib.sha256(payload).hexdigest()
+    completed_at = datetime.now(UTC)
+    envelope = PlanArtifact(
+        prepared.manifest_sha256, completed_at, TERRAFORM_VERSION, PROVIDER_VERSION, payload
+    )
+    result = evaluate_bound_plan(prepared, envelope, now=completed_at)
+    # Bounded synthetic diagnostics identify policy incompatibility without dumping plan values.
+    print(
+        json.dumps(
+            {
+                "fixture": fixture,
+                "family": "ipv6" if ipv6 else "ipv4",
+                "policy_reason": result.policy.reason,
+                "unknown_attribute_names": sorted(
+                    after["resource_changes"][0]["change"].get("after_unknown", {}).keys()
+                ),
+                "changed_attribute_names": sorted(
+                    k
+                    for k, v in after["resource_changes"][0]["change"]["before"].items()
+                    if v != after["resource_changes"][0]["change"]["after"].get(k)
+                ),
+            },
+            sort_keys=True,
+        )
+    )
+    expected_disposition = (
+        PlanDisposition.REJECT
+        if fixture == "standalone_public_ssh"
+        else PlanDisposition.UPDATE_CANDIDATE
+    )
+    assert result.policy.disposition == expected_disposition, result.policy
+    if fixture == "standalone_public_ssh":
+        # The pinned provider leaves a second source channel unknown. Production replacement
+        # support remains blocked; do not permit this just to obtain passing integration.
+        assert result.policy.reason == "unknown_rule_semantics"
+        assert (
+            after["resource_changes"][0]["change"]["after_unknown"]["source_security_group_id"]
+            is True
+        )
+        assert after["resource_changes"][0]["change"]["before"]["source_security_group_id"] == ""
     changes = [c for c in after["resource_changes"] if c["change"]["actions"] != ["no-op"]]
     assert len(changes) == 1
     change = changes[0]
-    assert change["address"] == run.patch.resource_address
+    assert change["address"] == prepared.patch.resource_address
     assert change["change"]["actions"] == expected_actions
     expected = [replacement] if fixture == "standalone_public_ssh" else replacement
     assert change["change"]["after"][source_key] == expected
@@ -145,9 +286,30 @@ def test_generated_patch_has_expected_provider_plan(
         preserved.append("type")
     for key in preserved:
         assert change["change"]["before"][key] == change["change"]["after"][key]
-    print(json.dumps({
-        "fixture": fixture, "terraform": TERRAFORM_VERSION, "aws_provider": PROVIDER_VERSION,
-        "family": "ipv6" if ipv6 else "ipv4",
-        "actions": expected_actions, "replacement_paths": change["change"].get("replace_paths", []),
-        "plan_json_sha256": digest, "refresh": False, "apply": False, "synthetic_state": True,
-    }, sort_keys=True))
+    print(
+        json.dumps(
+            {
+                "fixture": fixture,
+                "terraform": TERRAFORM_VERSION,
+                "aws_provider": PROVIDER_VERSION,
+                "family": "ipv6" if ipv6 else "ipv4",
+                "actions": expected_actions,
+                "replacement_paths": change["change"].get("replace_paths", []),
+                "plan_json_sha256": digest,
+                "refresh": False,
+                "apply": False,
+                "synthetic_state": True,
+                "plan_policy": result.policy.disposition.value,
+                "policy_reason": result.policy.reason,
+                "input_manifest_sha256": prepared.manifest_sha256,
+            },
+            sort_keys=True,
+        )
+    )
+    if fixture == "vpc_ingress_public_ssh":
+        # Attack an accepted actual plan, rather than testing an already-rejected plan again.
+        after["resource_changes"][0]["change"]["after"]["from_port"] = 23
+        tampered = replace(envelope, content=json.dumps(after).encode())
+        rejected = evaluate_bound_plan(prepared, tampered, now=completed_at)
+        assert rejected.policy.disposition == PlanDisposition.REJECT
+        assert rejected.policy.reason == "unexpected_target_attribute_change"

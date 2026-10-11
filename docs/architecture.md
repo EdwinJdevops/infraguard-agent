@@ -33,7 +33,7 @@ worker currently constructs them. Direct API claims never satisfy the provenance
 The automation boundary is an explicit conjunction:
 
 ```text
-fresh Security Hub CSPM event bound to one current EC2 rule
+internally consistent verified-finding provenance bound to one EC2 rule
 AND exactly one supported Terraform owner
 AND operator-approved replacement source
 AND targeted patch generated
@@ -41,7 +41,9 @@ AND every local validation check passes
 = can_open_pr
 ```
 
-`can_open_pr` is eligibility, not publication. `publication` remains `not_attempted`.
+`can_open_pr` is the local-stage result, not production eligibility or publication. It does not
+check input age. The optional bound-analysis core adds freshness and plan policy, but requires a
+trusted coordinator and executor that are not shipped. `publication` remains `not_attempted`.
 
 ## Current component responsibilities
 
@@ -54,6 +56,9 @@ AND every local validation check passes
 | `infraguard/patches.py` | Produce an in-memory targeted static-HCL change | Apply Terraform or commit to Git |
 | `infraguard/validation.py` | Compare before/after semantics and diff shape | Provider-aware validation or plan evaluation |
 | `infraguard/evidence.py` | Build machine and reviewer evidence | Sign or persist evidence |
+| `infraguard/repository.py` | Capture direct Terraform inputs from Git objects at an expected commit | Clone, authorize repository access, or attest origin |
+| `infraguard/analysis.py` | Bind inputs, enforce age/completion limits, recheck prepared artifact integrity | Authenticate backend/workspace or invoke Terraform |
+| `infraguard/terraform_plan.py` | Reject unrelated/unknown changes and classify supported update/replacement plans | Authorize disruption, publish, apply, or prove plan authenticity |
 
 ## Ownership proof currently supported
 
