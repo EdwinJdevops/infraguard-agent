@@ -84,7 +84,7 @@ def test_generated_patch_has_expected_provider_plan(
     else:
         attrs.update(
             arn="arn:aws:ec2:us-east-1:123456789012:security-group-rule/sgr-1234567890abcdef0",
-            tags={}, tags_all={},
+            tags=None, tags_all={},
         )
     instance["attributes"] = attrs
     state = tmp_path / "terraform.tfstate"
